@@ -34,37 +34,36 @@ export default function App() {
 
   useEffect(() => {
     if (session) {
-      loadProgressAndHunts();
+      const loadEverything = async () => {
+        // Load progress FIRST
+        const { data: progress } = await supabase.from('user_progress').select('*').eq('user_id', session.user.id).single();
+        if (progress) {
+          setCompleted(progress.completed_hunt_ids || []);
+          setStreak(progress.streak || 0);
+          setTotalHunts(progress.total_hunts || 0);
+          setTier(progress.tier || 'Newbie');
+        }
+
+        // Then load hunts and apply current filter
+        fetchHunts();
+      };
+
+      loadEverything();
+
+      // Refresh hunts every 5 seconds, but keep current filter
       const interval = setInterval(fetchHunts, 5000);
       return () => clearInterval(interval);
     }
   }, [session]);
 
-  const loadProgressAndHunts = async () => {
-    // Load progress first
-    const { data: progress } = await supabase.from('user_progress').select('*').eq('user_id', session.user.id).single();
-    if (progress) {
-      setCompleted(progress.completed_hunt_ids || []);
-      setStreak(progress.streak || 0);
-      setTotalHunts(progress.total_hunts || 0);
-      setTier(progress.tier || 'Newbie');
-    }
-
-    // Then load hunts and filter
-    fetchHunts();
-  };
-
   const fetchHunts = async () => {
     const { data } = await supabase.from('hunts').select('*').order('date', { ascending: false });
     setHunts(data || []);
-    applyFilter(data || []);
+    applyCurrentFilter(data || []);
   };
 
-  const applyFilter = (allHunts) => {
-    let filtered = allHunts;
-
-    // Always hide completed hunts from main list
-    filtered = filtered.filter(h => !completed.includes(h.id));
+  const applyCurrentFilter = (allHunts) => {
+    let filtered = allHunts.filter(h => !completed.includes(h.id)); // hide completed
 
     if (activeFilter !== 'All') {
       filtered = filtered.filter(h => h.category === activeFilter);
@@ -75,7 +74,7 @@ export default function App() {
 
   const filterHunts = (cat) => {
     setActiveFilter(cat);
-    applyFilter(hunts);
+    applyCurrentFilter(hunts);
   };
 
   const startHunt = (hunt) => {
@@ -122,7 +121,9 @@ export default function App() {
       setShowModal(false);
       setSelfieFile(null);
       setCurrentHunt(null);
-      applyFilter(hunts); // Refresh list to hide the newly completed hunt
+
+      // Re-apply filter to hide the newly completed hunt
+      applyCurrentFilter(hunts);
     } catch (error) {
       alert('Upload failed: ' + error.message);
     }
@@ -165,7 +166,6 @@ export default function App() {
   }
 
   const activeHunts = hunts.length - completed.length;
-
   const completedHunts = hunts.filter(h => completed.includes(h.id));
 
   return (
