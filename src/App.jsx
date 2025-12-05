@@ -20,11 +20,13 @@ export default function App() {
   const [streak, setStreak] = useState(0);
   const [totalHunts, setTotalHunts] = useState(0);
   const [tier, setTier] = useState('Newbie');
+  const [lastActive, setLastActive] = useState(null); // <-- new
   const [currentHunt, setCurrentHunt] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showCompletedModal, setShowCompletedModal] = useState(false);
   const [selfieFile, setSelfieFile] = useState(null);
+  const [uploading, setUploading] = useState(false); // <-- new
   const [dataLoaded, setDataLoaded] = useState(false);
 
   useEffect(() => {
@@ -55,11 +57,13 @@ export default function App() {
       setStreak(progress.streak || 0);
       setTotalHunts(progress.total_hunts || 0);
       setTier(progress.tier || 'Newbie');
+      setLastActive(progress.last_active || null);
     } else {
       setCompleted([]);
       setStreak(0);
       setTotalHunts(0);
       setTier('Newbie');
+      setLastActive(null);
     }
 
     // Then load hunts
@@ -94,8 +98,9 @@ export default function App() {
   };
 
   const uploadSelfie = async () => {
-    if (!selfieFile || !currentHunt) return;
+    if (!selfieFile || !currentHunt || uploading) return;
 
+    setUploading(true);
     try {
       const fileExt = selfieFile.name.split('.').pop();
       const fileName = `${session.user.id}_${Date.now()}.${fileExt}`;
@@ -112,8 +117,26 @@ export default function App() {
 
       const newCompleted = [...new Set([...completed, currentHunt.id])];
       const newTotal = totalHunts + 1;
+
+      // --- Correct streak calculation ---
+
       const today = new Date().toISOString().slice(0, 10);
-      const newStreak = currentHunt.date === today ? streak + 1 : 1;
+      let newStreak = 1;
+
+      if (lastActive) {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+        if (lastActive === yesterdayStr) {
+          newStreak = streak + 1;
+        } else if (lastActive === today) {
+          newStreak = streak; // already completed something today
+        } else {
+          newStreak = 1; // streak broken
+        }
+      }
+
       const newTier = newTotal >= 20 ? 'Legend' : newTotal >= 10 ? 'Pro' : newTotal >= 5 ? 'Hunter' : 'Newbie';
 
       await supabase.from('user_progress').upsert({
@@ -125,10 +148,13 @@ export default function App() {
         last_active: today,
       });
 
+      // Update state
       setCompleted(newCompleted);
       setTotalHunts(newTotal);
       setStreak(newStreak);
       setTier(newTier);
+      setLastActive(today);
+
       setShowModal(false);
       setSelfieFile(null);
       setCurrentHunt(null);
@@ -137,21 +163,29 @@ export default function App() {
       applyFilter(hunts);
     } catch (error) {
       alert('Upload failed: ' + error.message);
+    } finally {
+      setUploading(false);
     }
   };
 
   const signUp = async () => {
     setLoading(true); setAuthError('');
-    const { error } = await supabase.auth.signUp({ email, password });
-    if (error) setAuthError(error.message);
-    setLoading(false);
+    try {
+      const { error } = await supabase.auth.signUp({ email, password });
+      if (error) setAuthError(error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const signIn = async () => {
     setLoading(true); setAuthError('');
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setAuthError(error.message);
-    setLoading(false);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) setAuthError(error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const signOut = async () => {
@@ -188,7 +222,8 @@ export default function App() {
     );
   }
 
-  const activeHunts = hunts.length - completed.length;
+  // Correct active hunt count
+  const activeHuntsCount = hunts.filter(h => !completed.includes(h.id)).length;
   const completedHunts = hunts.filter(h => completed.includes(h.id));
 
   return (
@@ -212,7 +247,7 @@ export default function App() {
             <div className="text-right">
               <div className="text-3xl font-black text-purple-600">{tier}</div>
               <button onClick={() => setShowCompletedModal(true)} className="text-xl underline text-gray-700">
-                {totalHunts} completed · {activeHunts} active
+                {totalHunts} completed · {activeHuntsCount} active
               </button>
             </div>
           </div>
@@ -290,15 +325,15 @@ export default function App() {
       {showModal && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-6">
           <div className="bg-white rounded-3xl shadow-2xl p-12 max-w-md w-full text-center relative">
-            <button onClick={() => setShowModal(false)} className="absolute top-6 right-6 text-4xl text-gray-500">&times;</button>
+            <button onClick={() => { setShowModal(false); setSelfieFile(null); }} className="absolute top-6 right-6 text-4xl text-gray-500">&times;</button>
             <h3 className="text-4xl font-black text-gray-800 mb-6">Show the logo!</h3>
             <p className="text-xl text-gray-600 mb-10">Win £50 weekly for best selfie!</p>
             <input type="file" accept="image/*" capture="environment" onChange={e => setSelfieFile(e.target.files[0])} className="hidden" id="camera" />
             <label htmlFor="camera" className="w-44 h-44 bg-green-600 hover:bg-green-700 text-white rounded-full flex items-center justify-center shadow-2xl text-5xl cursor-pointer mx-auto mb-12">
               <span className="text-2xl font-bold">Camera</span>
             </label>
-            <button onClick={uploadSelfie} disabled={!selfieFile} className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white py-6 rounded-2xl font-black text-2xl shadow-xl">
-              Submit & Unlock
+            <button onClick={uploadSelfie} disabled={!selfieFile || uploading} className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white py-6 rounded-2xl font-black text-2xl shadow-xl">
+              {uploading ? 'Uploading...' : 'Submit & Unlock'}
             </button>
           </div>
         </div>
