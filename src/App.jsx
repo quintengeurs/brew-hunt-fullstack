@@ -20,13 +20,13 @@ export default function App() {
   const [streak, setStreak] = useState(0);
   const [totalHunts, setTotalHunts] = useState(0);
   const [tier, setTier] = useState('Newbie');
-  const [lastActive, setLastActive] = useState(null); // <-- new
+  const [lastActive, setLastActive] = useState(null);
   const [currentHunt, setCurrentHunt] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showCompletedModal, setShowCompletedModal] = useState(false);
   const [selfieFile, setSelfieFile] = useState(null);
-  const [uploading, setUploading] = useState(false); // <-- new
+  const [uploading, setUploading] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
 
   useEffect(() => {
@@ -53,12 +53,16 @@ export default function App() {
       .maybeSingle();
 
     if (progress) {
-      setCompleted(progress.completed_hunt_ids || []);
+      // Critical fix: safely handle null or non-array for completed_hunt_ids
+      const completedIds = progress.completed_hunt_ids;
+      setCompleted(Array.isArray(completedIds) ? completedIds : []);
+
       setStreak(progress.streak || 0);
       setTotalHunts(progress.total_hunts || 0);
       setTier(progress.tier || 'Newbie');
       setLastActive(progress.last_active || null);
     } else {
+      // First-time user
       setCompleted([]);
       setStreak(0);
       setTotalHunts(0);
@@ -78,7 +82,7 @@ export default function App() {
   };
 
   const applyFilter = (allHunts) => {
-    let filtered = allHunts.filter(h => !completed.includes(h.id)); // hide completed
+    let filtered = allHunts.filter(h => !completed.includes(h.id));
 
     if (activeFilter !== 'All') {
       filtered = filtered.filter(h => h.category === activeFilter);
@@ -118,8 +122,6 @@ export default function App() {
       const newCompleted = [...new Set([...completed, currentHunt.id])];
       const newTotal = totalHunts + 1;
 
-      // --- Correct streak calculation ---
-
       const today = new Date().toISOString().slice(0, 10);
       let newStreak = 1;
 
@@ -131,9 +133,9 @@ export default function App() {
         if (lastActive === yesterdayStr) {
           newStreak = streak + 1;
         } else if (lastActive === today) {
-          newStreak = streak; // already completed something today
+          newStreak = streak;
         } else {
-          newStreak = 1; // streak broken
+          newStreak = 1;
         }
       }
 
@@ -148,7 +150,6 @@ export default function App() {
         last_active: today,
       });
 
-      // Update state
       setCompleted(newCompleted);
       setTotalHunts(newTotal);
       setStreak(newStreak);
@@ -159,7 +160,6 @@ export default function App() {
       setSelfieFile(null);
       setCurrentHunt(null);
 
-      // Re-apply filter to hide the newly completed hunt
       applyFilter(hunts);
     } catch (error) {
       alert('Upload failed: ' + error.message);
@@ -222,7 +222,6 @@ export default function App() {
     );
   }
 
-  // Correct active hunt count
   const activeHuntsCount = hunts.filter(h => !completed.includes(h.id)).length;
   const completedHunts = hunts.filter(h => completed.includes(h.id));
 
@@ -328,7 +327,7 @@ export default function App() {
             <button onClick={() => { setShowModal(false); setSelfieFile(null); }} className="absolute top-6 right-6 text-4xl text-gray-500">&times;</button>
             <h3 className="text-4xl font-black text-gray-800 mb-6">Show the logo!</h3>
             <p className="text-xl text-gray-600 mb-10">Win £50 weekly for best selfie!</p>
-            <input type="file" accept="image/*" capture="environment" onChange={e => setSelfieFile(e.target.files[0])} className="hidden" id="camera" />
+            <input type="file" accept="image/*" capture="environment" onChange={e => setSelfieFile(e.target.files?.[0] || null)} className="hidden" id="camera" />
             <label htmlFor="camera" className="w-44 h-44 bg-green-600 hover:bg-green-700 text-white rounded-full flex items-center justify-center shadow-2xl text-5xl cursor-pointer mx-auto mb-12">
               <span className="text-2xl font-bold">Camera</span>
             </label>
