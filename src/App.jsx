@@ -16,7 +16,7 @@ export default function App() {
   const [hunts, setHunts] = useState([]);
   const [filteredHunts, setFilteredHunts] = useState([]);
   const [activeFilter, setActiveFilter] = useState('All');
-  const [completed, setCompleted] = useState([]); // array of hunt IDs
+  const [completed, setCompleted] = useState([]);
   const [streak, setStreak] = useState(0);
   const [totalHunts, setTotalHunts] = useState(0);
   const [tier, setTier] = useState('Newbie');
@@ -43,7 +43,6 @@ export default function App() {
   }, [session]);
 
   const loadProgressAndHunts = async () => {
-    // Load progress FIRST
     const { data: progress } = await supabase
       .from('user_progress')
       .select('*')
@@ -73,7 +72,7 @@ export default function App() {
   };
 
   const applyFilter = (allHunts) => {
-    let filtered = allHunts.filter(h => !completed.includes(h.id)); // hide completed
+    let filtered = allHunts.filter(h => !completed.includes(h.id));
 
     if (activeFilter !== 'All') {
       filtered = filtered.filter(h => h.category === activeFilter);
@@ -131,9 +130,7 @@ export default function App() {
       setShowModal(false);
       setSelfieFile(null);
       setCurrentHunt(null);
-
-      // Re-apply filter to hide the newly completed hunt
-      applyFilter(hunts);
+      applyFilter(hunts); // Hide the completed hunt immediately
     } catch (error) {
       alert('Upload failed: ' + error.message);
     }
