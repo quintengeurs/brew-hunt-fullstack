@@ -16,7 +16,7 @@ export default function App() {
   const [hunts, setHunts] = useState([]);
   const [filteredHunts, setFilteredHunts] = useState([]);
   const [activeFilter, setActiveFilter] = useState('All');
-  const [completed, setCompleted] = useState([]);
+  const [completed, setCompleted] = useState([]); // array of hunt IDs
   const [streak, setStreak] = useState(0);
   const [totalHunts, setTotalHunts] = useState(0);
   const [tier, setTier] = useState('Newbie');
@@ -43,6 +43,7 @@ export default function App() {
   }, [session]);
 
   const loadProgressAndHunts = async () => {
+    // Load progress FIRST
     const { data: progress } = await supabase
       .from('user_progress')
       .select('*')
@@ -61,6 +62,7 @@ export default function App() {
       setTier('Newbie');
     }
 
+    // Then load hunts
     await fetchHunts();
     setDataLoaded(true);
   };
@@ -72,7 +74,7 @@ export default function App() {
   };
 
   const applyFilter = (allHunts) => {
-    let filtered = allHunts.filter(h => !completed.includes(h.id));
+    let filtered = allHunts.filter(h => !completed.includes(h.id)); // hide completed
 
     if (activeFilter !== 'All') {
       filtered = filtered.filter(h => h.category === activeFilter);
@@ -130,7 +132,9 @@ export default function App() {
       setShowModal(false);
       setSelfieFile(null);
       setCurrentHunt(null);
-      applyFilter(hunts); // Hide the completed hunt immediately
+
+      // Re-apply filter to hide the newly completed hunt
+      applyFilter(hunts);
     } catch (error) {
       alert('Upload failed: ' + error.message);
     }
@@ -273,7 +277,7 @@ export default function App() {
                     <img src={hunt.photo || "https://picsum.photos/400/300"} alt="Clue" className="w-full h-48 object-cover rounded-xl mb-4" />
                     <p className="text-xl font-bold text-gray-800 mb-2">{hunt.riddle}</p>
                     <p className="text-lg text-gray-700 mb-2">{hunt.business_name}</p>
-                    <p className="text-green-600 font-black text-lg">CODE: {hunt.code}</p>
+                    <p className="text-green-600 font-black text-lg">{hunt.code}</p>
                   </div>
                 ))}
               </div>
