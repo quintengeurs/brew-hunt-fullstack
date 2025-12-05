@@ -35,15 +35,19 @@ export default function App() {
     return () => listener?.subscription.unsubscribe();
   }, []);
 
-useEffect(() => {
-  if (session) {
-    setDataLoaded(false);
-    loadProgressAndHunts();
-    // Removed polling — new hunts added by admin will appear on next login/refresh
-  }
-}, [session]);
+  useEffect(() => {
+    if (session) {
+      setDataLoaded(false);
+      loadProgressAndHunts();
+
+      // Optional polling for new hunts added by admin (safe now)
+      const interval = setInterval(fetchHunts, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [session]);
 
   const loadProgressAndHunts = async () => {
+    // 1. Load user progress FIRST
     const { data: progress } = await supabase
       .from('user_progress')
       .select('*')
@@ -65,7 +69,14 @@ useEffect(() => {
       setLastActive(null);
     }
 
-    await fetchHunts();
+    // 2. Then load hunts
+    const { data } = await supabase.from('hunts').select('*').order('date', { ascending: false });
+    setHunts(data || []);
+
+    // 3. Apply filter only when both are ready
+    applyFilter(data || []);
+
+    // 4. Now show the UI
     setDataLoaded(true);
   };
 
@@ -75,7 +86,6 @@ useEffect(() => {
     applyFilter(data || []);
   };
 
-  // Updated applyFilter — now accepts optional params for instant updates
   const applyFilter = (allHunts = hunts, completedIds = completed) => {
     let filtered = allHunts.filter(h => !completedIds.includes(h.id));
 
@@ -155,7 +165,6 @@ useEffect(() => {
       setSelfieFile(null);
       setCurrentHunt(null);
 
-      // Critical: pass the fresh completed list for instant removal
       applyFilter(hunts, newCompleted);
     } catch (error) {
       alert('Upload failed: ' + error.message);
@@ -199,7 +208,7 @@ useEffect(() => {
           {authError && <p className="text-red-600 font-bold mb-6">{authError}</p>}
           <input type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 mb-4 border-2 border-amber-200 rounded-2xl text-lg" />
           <input type="password" placeholder="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 mb-8 border-2 border-amber-200 rounded-2xl text-lg" />
-          <button onClick={signUp} disabled={loading} className="w-full bg-amber-600 hover:bg-amber-700 disabled:opacity- scram60 text-white py-6 rounded-2xl font-bold text-2xl shadow-lg mb-4">
+          <button onClick={signUp} disabled={loading} className="w-full bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white py-6 rounded-2xl font-bold text-2xl shadow-lg mb-4">
             {loading ? 'Creating...' : 'Sign Up Free'}
           </button>
           <button onClick={signIn} disabled={loading} className="w-full bg-gray-700 hover:bg-gray-800 disabled:opacity-60 text-white py-6 rounded-2xl font-bold text-2xl shadow-lg">
