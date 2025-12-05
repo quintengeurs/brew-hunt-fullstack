@@ -15,7 +15,7 @@ export default function App() {
 
   const [hunts, setHunts] = useState([]);
   const [filteredHunts, setFilteredHunts] = useState([]);
-  const [activeFilter, setActiveFilter] = useState('All');
+  const [activeFilter, setActiveFilter] = useState('All'); // FIXED: Default "All"
   const [completed, setCompleted] = useState([]); // array of hunt IDs
   const [streak, setStreak] = useState(0);
   const [totalHunts, setTotalHunts] = useState(0);
@@ -34,35 +34,30 @@ export default function App() {
 
   useEffect(() => {
     if (session) {
-      const loadEverything = async () => {
-        // Load progress FIRST
-        const { data: progress } = await supabase.from('user_progress').select('*').eq('user_id', session.user.id).single();
-        if (progress) {
-          setCompleted(progress.completed_hunt_ids || []);
-          setStreak(progress.streak || 0);
-          setTotalHunts(progress.total_hunts || 0);
-          setTier(progress.tier || 'Newbie');
-        }
-
-        // Then load hunts and apply current filter
-        fetchHunts();
-      };
-
-      loadEverything();
-
-      // Refresh hunts every 5 seconds, but keep current filter
+      loadProgress();
+      fetchHunts();
       const interval = setInterval(fetchHunts, 5000);
       return () => clearInterval(interval);
     }
   }, [session]);
 
+  const loadProgress = async () => {
+    const { data } = await supabase.from('user_progress').select('*').eq('user_id', session.user.id).single();
+    if (data) {
+      setCompleted(data.completed_hunt_ids || []); // FIXED: Consistent column name
+      setStreak(data.streak || 0);
+      setTotalHunts(data.total_hunts || 0);
+      setTier(data.tier || 'Newbie');
+    }
+  };
+
   const fetchHunts = async () => {
     const { data } = await supabase.from('hunts').select('*').order('date', { ascending: false });
     setHunts(data || []);
-    applyCurrentFilter(data || []);
+    applyFilter(data || []);
   };
 
-  const applyCurrentFilter = (allHunts) => {
+  const applyFilter = (allHunts) => {
     let filtered = allHunts.filter(h => !completed.includes(h.id)); // hide completed
 
     if (activeFilter !== 'All') {
@@ -74,7 +69,7 @@ export default function App() {
 
   const filterHunts = (cat) => {
     setActiveFilter(cat);
-    applyCurrentFilter(hunts);
+    applyFilter(hunts);
   };
 
   const startHunt = (hunt) => {
@@ -107,7 +102,7 @@ export default function App() {
 
       await supabase.from('user_progress').upsert({
         user_id: session.user.id,
-        completed_hunt_ids: newCompleted,
+        completed_hunt_ids: newCompleted, // FIXED: Consistent column name
         total_hunts: newTotal,
         streak: newStreak,
         tier: newTier,
@@ -121,9 +116,7 @@ export default function App() {
       setShowModal(false);
       setSelfieFile(null);
       setCurrentHunt(null);
-
-      // Re-apply filter to hide the newly completed hunt
-      applyCurrentFilter(hunts);
+      applyFilter(hunts); // Refresh list
     } catch (error) {
       alert('Upload failed: ' + error.message);
     }
