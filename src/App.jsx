@@ -25,6 +25,7 @@ export default function App() {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showCompletedModal, setShowCompletedModal] = useState(false);
   const [selfieFile, setSelfieFile] = useState(null);
+  const [dataLoaded, setDataLoaded] = useState(false); // NEW: Prevents flash
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -34,54 +35,52 @@ export default function App() {
 
   useEffect(() => {
     if (session) {
-      loadProgress();
-      fetchHunts();
+      setDataLoaded(false); // Reset on session change
+      loadProgressAndHunts();
       const interval = setInterval(fetchHunts, 5000);
       return () => clearInterval(interval);
     }
-  }, [session, completed, activeFilter]); // Added dependencies — this fixes the flicker!
+  }, [session]);
 
-const loadProgress = async () => {
-  const { data, error } = await supabase
-    .from('user_progress')
-    .select('*')
-    .eq('user_id', session.user.id)
-    .maybeSingle();  // Handles no row gracefully
+  const loadProgressAndHunts = async () => {
+    // Load progress FIRST
+    const { data: progress } = await supabase.from('user_progress').select('*').eq('user_id', session.user.id).maybeSingle();
+    if (progress) {
+      setCompleted(progress.completed_hunt_ids || []);
+      setStreak(progress.streak || 0);
+      setTotalHunts(progress.total_hunts || 0);
+      setTier(progress.tier || 'Newbie');
+    } else {
+      setCompleted([]);
+      setStreak(0);
+      setTotalHunts(0);
+      setTier('Newbie');
+    }
 
-  if (error && error.code !== 'PGRST116') console.error('Progress load error:', error);
-
-  if (data) {
-    setCompleted(data.completed_hunt_ids || []);
-    setStreak(data.streak || 0);
-    setTotalHunts(data.total_hunts || 0);
-    setTier(data.tier || 'Newbie');
-  } else {
-    // Fallback for very old users (shouldn't happen now)
-    setCompleted([]);
-    setStreak(0);
-    setTotalHunts(0);
-    setTier('Newbie');
-  }
-};
+    // Then load hunts and apply filter
+    await fetchHunts();
+    setDataLoaded(true); // Only show hunts after everything is ready
+  };
 
   const fetchHunts = async () => {
     const { data } = await supabase.from('hunts').select('*').order('date', { ascending: false });
     setHunts(data || []);
+    applyFilter(data || []);
   };
 
-  useEffect(() => {
-    // Re-apply filter whenever hunts or completed change
-    const filtered = hunts.filter(h => !completed.includes(h.id));
+  const applyFilter = (allHunts) => {
+    let filtered = allHunts.filter(h => !completed.includes(h.id)); // hide completed
 
-    const finalFiltered = activeFilter === 'All' 
-      ? filtered 
-      : filtered.filter(h => h.category === activeFilter);
+    if (activeFilter !== 'All') {
+      filtered = filtered.filter(h => h.category === activeFilter);
+    }
 
-    setFilteredHunts(finalFiltered);
-  }, [hunts, completed, activeFilter]);
+    setFilteredHunts(filtered);
+  };
 
   const filterHunts = (cat) => {
     setActiveFilter(cat);
+    applyFilter(hunts);
   };
 
   const startHunt = (hunt) => {
@@ -128,6 +127,7 @@ const loadProgress = async () => {
       setShowModal(false);
       setSelfieFile(null);
       setCurrentHunt(null);
+      applyFilter(hunts);
     } catch (error) {
       alert('Upload failed: ' + error.message);
     }
@@ -150,7 +150,6 @@ const loadProgress = async () => {
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) console.error('Logout error:', error);
-    // Force local session clear even if server throws
     setSession(null);
   };
 
@@ -170,6 +169,14 @@ const loadProgress = async () => {
             Log In
           </button>
         </div>
+      </div>
+    );
+  }
+
+  if (!dataLoaded) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50 flex items-center justify-center">
+        <p className="text-2xl text-amber-900 font-bold">Loading your hunts...</p>
       </div>
     );
   }
