@@ -41,15 +41,34 @@ export default function App() {
     }
   }, [session]);
 
-  const loadProgress = async () => {
-    const { data } = await supabase.from('user_progress').select('*').eq('user_id', session.user.id).single();
-    if (data) {
-      setCompleted(data.completed_hunt_ids || []); // FIXED: Consistent column name
-      setStreak(data.streak || 0);
-      setTotalHunts(data.total_hunts || 0);
-      setTier(data.tier || 'Newbie');
-    }
-  };
+const loadProgress = async () => {
+  const { data, error } = await supabase
+    .from('user_progress')
+    .select('*')
+    .eq('user_id', session.user.id)
+    .maybeSingle();  // ← Changed from .single() to .maybeSingle()
+
+  if (error && error.code !== 'PGRST116') {
+    console.error('Progress load error:', error);
+    return;
+  }
+
+  if (data) {
+    setCompleted(data.completed_hunt_ids || []);
+    setStreak(data.streak || 0);
+    setTotalHunts(data.total_hunts || 0);
+    setTier(data.tier || 'Newbie');
+  } else {
+    // New user — create default row
+    await supabase.from('user_progress').insert({
+      user_id: session.user.id,
+      completed_hunt_ids: [],
+      streak: 0,
+      total_hunts: 0,
+      tier: 'Newbie',
+    });
+  }
+};
 
   const fetchHunts = async () => {
     const { data } = await supabase.from('hunts').select('*').order('date', { ascending: false });
