@@ -37,22 +37,27 @@ export default function App() {
 
   useEffect(() => {
     if (session) {
+      console.log('Session loaded:', session.user.id);
       setDataLoaded(false);
       loadProgressAndHunts();
 
       // Optional polling for new admin-added hunts
       const interval = setInterval(fetchHunts, 10000);
       return () => clearInterval(interval);
+    } else {
+      console.log('No session');
     }
   }, [session]);
 
   const loadProgressAndHunts = async () => {
-    // Load progress FIRST
-    const { data: progress } = await supabase
+    console.log('Loading progress for user:', session.user.id);
+    const { data: progress, error } = await supabase
       .from('user_progress')
       .select('*')
       .eq('user_id', session.user.id)
       .maybeSingle();
+    console.log('Progress data:', progress);
+    console.log('Progress error:', error);
 
     if (progress) {
       const completedIds = progress.completed_hunt_ids;
@@ -147,6 +152,7 @@ export default function App() {
 
       // Check if row exists, then update or insert
       const { data: existing } = await supabase.from('user_progress').select('user_id').eq('user_id', session.user.id).maybeSingle();
+      console.log('Existing progress before save:', existing);
 
       if (existing) {
         await supabase.from('user_progress').update({
@@ -166,6 +172,8 @@ export default function App() {
           last_active: today,
         });
       }
+
+      console.log('Saved progress for user ID:', session.user.id);
 
       setCompleted(newCompleted);
       setTotalHunts(newTotal);
