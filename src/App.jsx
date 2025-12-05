@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { LogOut, Trophy } from 'lucide-react';
+import { LogOut, Trophy, CheckCircle } from 'lucide-react';
 
 const supabaseUrl = 'https://eeboxlitezqgjyrnssgx.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlYm94bGl0ZXpxZ2p5cm5zc2d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2NjcyNTksImV4cCI6MjA4MDI0MzI1OX0.8VlGLHjEv_0aGWOjiDuLLziOCnUqciIAEWayMUGsXT8';
@@ -16,13 +16,14 @@ export default function App() {
   const [hunts, setHunts] = useState([]);
   const [filteredHunts, setFilteredHunts] = useState([]);
   const [activeFilter, setActiveFilter] = useState('All');
-  const [completed, setCompleted] = useState([]);
+  const [completed, setCompleted] = useState([]); // array of hunt IDs
   const [streak, setStreak] = useState(0);
   const [totalHunts, setTotalHunts] = useState(0);
   const [tier, setTier] = useState('Newbie');
   const [currentHunt, setCurrentHunt] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showCompletedModal, setShowCompletedModal] = useState(false);
   const [selfieFile, setSelfieFile] = useState(null);
 
   useEffect(() => {
@@ -43,7 +44,7 @@ export default function App() {
   const loadProgress = async () => {
     const { data } = await supabase.from('user_progress').select('*').eq('user_id', session.user.id).single();
     if (data) {
-      setCompleted(data.completed_hunts || []);
+      setCompleted(data.completed_hunt_ids || []);
       setStreak(data.streak || 0);
       setTotalHunts(data.total_hunts || 0);
       setTier(data.tier || 'Newbie');
@@ -53,7 +54,6 @@ export default function App() {
   const fetchHunts = async () => {
     const { data } = await supabase.from('hunts').select('*').order('date', { ascending: false });
     setHunts(data || []);
-    // Only re-filter if activeFilter is set — prevents reset to "All"
     filterHunts(activeFilter);
   };
 
@@ -68,58 +68,49 @@ export default function App() {
     setShowModal(true);
   };
 
-const uploadSelfie = async () => {
-  if (!selfieFile || !currentHunt) return;
+  const uploadSelfie = async () => {
+    if (!selfieFile || !currentHunt) return;
 
-  try {
-    console.log('Debug: Session user ID:', session.user.id);  // ← ADD THIS
-    console.log('Debug: Current hunt ID:', currentHunt.id);  // ← ADD THIS
+    try {
+      const fileExt = selfieFile.name.split('.').pop();
+      const fileName = `${session.user.id}_${Date.now()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage.from('selfies').upload(fileName, selfieFile);
+      if (uploadError) throw uploadError;
 
-    // Upload to Storage (unchanged)
-    const fileExt = selfieFile.name.split('.').pop();
-    const fileName = `${session.user.id}_${Date.now()}.${fileExt}`;
-    const { error: uploadError } = await supabase.storage.from('selfies').upload(fileName, selfieFile);
-    if (uploadError) throw uploadError;
+      const { data: { publicUrl } } = supabase.storage.from('selfies').getPublicUrl(fileName);
 
-    const { data: { publicUrl } } = supabase.storage.from('selfies').getPublicUrl(fileName);
+      await supabase.from('selfies').insert({
+        user_id: session.user.id,
+        hunt_id: currentHunt.id,
+        image_url: publicUrl,
+      });
 
-    // Insert to DB with debug
-    const { error: insertError } = await supabase.from('selfies').insert({
-      user_id: session.user.id,
-      hunt_id: currentHunt.id,
-      image_url: publicUrl,
-    });
-    console.log('Debug: Insert error:', insertError);  // ← ADD THIS
+      const newCompleted = [...new Set([...completed, currentHunt.id])];
+      const newTotal = totalHunts + 1;
+      const today = new Date().toISOString().slice(0, 10);
+      const newStreak = currentHunt.date === today ? streak + 1 : 1;
+      const newTier = newTotal >= 20 ? 'Legend' : newTotal >= 10 ? 'Pro' : newTotal >= 5 ? 'Hunter' : 'Newbie';
 
-    if (insertError) throw insertError;
+      await supabase.from('user_progress').upsert({
+        user_id: session.user.id,
+        completed_hunt_ids: newCompleted,
+        total_hunts: newTotal,
+        streak: newStreak,
+        tier: newTier,
+        last_active: today,
+      });
 
-    // Update progress (unchanged)
-    const newCompleted = [...new Set([...completed, currentHunt.date])];
-    const newTotal = totalHunts + 1;
-    const newStreak = currentHunt.date === new Date().toISOString().slice(0, 10) ? streak + 1 : 1;
-    const newTier = newTotal >= 20 ? 'Legend' : newTotal >= 10 ? 'Pro' : newTotal >= 5 ? 'Hunter' : 'Newbie';
-
-    await supabase.from('user_progress').upsert({
-      user_id: session.user.id,
-      completed_hunts: newCompleted,
-      total_hunts: newTotal,
-      streak: newStreak,
-      tier: newTier,
-      last_active: new Date().toISOString().slice(0, 10),
-    });
-
-    setCompleted(newCompleted);
-    setTotalHunts(newTotal);
-    setStreak(newStreak);
-    setTier(newTier);
-    setShowModal(false);
-    setSelfieFile(null);
-    setCurrentHunt(null);
-  } catch (error) {
-    console.error('Full error:', error);  // ← ADD THIS
-    alert('Upload failed: ' + error.message);
-  }
-};
+      setCompleted(newCompleted);
+      setTotalHunts(newTotal);
+      setStreak(newStreak);
+      setTier(newTier);
+      setShowModal(false);
+      setSelfieFile(null);
+      setCurrentHunt(null);
+    } catch (error) {
+      alert('Upload failed: ' + error.message);
+    }
+  };
 
   const signUp = async () => {
     setLoading(true); setAuthError('');
@@ -157,6 +148,10 @@ const uploadSelfie = async () => {
     );
   }
 
+  const activeHunts = hunts.length - completed.length;
+
+  const completedHunts = hunts.filter(h => completed.includes(h.id));
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50">
       {/* Header */}
@@ -177,7 +172,9 @@ const uploadSelfie = async () => {
             </div>
             <div className="text-right">
               <div className="text-3xl font-black text-purple-600">{tier}</div>
-              <p className="text-xl">{totalHunts} hunts</p>
+              <button onClick={() => setShowCompletedModal(true)} className="text-xl underline text-gray-700">
+                {totalHunts} completed · {activeHunts} active
+              </button>
             </div>
           </div>
         </div>
@@ -205,7 +202,7 @@ const uploadSelfie = async () => {
             <p className="text-center text-gray-600 text-xl py-12">No {activeFilter === 'All' ? '' : activeFilter} hunts right now — check back soon!</p>
           ) : (
             filteredHunts.map(hunt => {
-              const done = completed.includes(hunt.date);
+              const done = completed.includes(hunt.id);
               return (
                 <div key={hunt.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden">
                   <div className="relative">
@@ -237,6 +234,30 @@ const uploadSelfie = async () => {
           )}
         </div>
       </div>
+
+      {/* Completed Hunts Modal */}
+      {showCompletedModal && (
+        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-6">
+          <div className="bg-white rounded-3xl shadow-2xl p-12 max-w-md w-full text-center relative max-h-screen overflow-y-auto">
+            <button onClick={() => setShowCompletedModal(false)} className="absolute top-6 right-6 text-4xl text-gray-500">&times;</button>
+            <h2 className="text-4xl font-black text-amber-900 mb-10">Your Completed Hunts ({totalHunts})</h2>
+            {completedHunts.length === 0 ? (
+              <p className="text-gray-600 text-xl">No completed hunts yet — get hunting!</p>
+            ) : (
+              <div className="space-y-8">
+                {completedHunts.map(hunt => (
+                  <div key={hunt.id} className="bg-gray-50 rounded-2xl p-6">
+                    <img src={hunt.photo || "https://picsum.photos/400/300"} alt="Clue" className="w-full h-48 object-cover rounded-xl mb-4" />
+                    <p className="text-xl font-bold text-gray-800 mb-2">{hunt.riddle}</p>
+                    <p className="text-lg text-gray-700 mb-2">{hunt.business_name}</p>
+                    <p className="text-green-600 font-black text-lg">CODE: {hunt.code}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Selfie Modal */}
       {showModal && (
