@@ -34,60 +34,41 @@ export default function App() {
 
   useEffect(() => {
     if (session) {
-      loadEverything();
+      loadProgress();
+      fetchHunts();
       const interval = setInterval(fetchHunts, 5000);
       return () => clearInterval(interval);
     }
-  }, [session]);
+  }, [session, completed, activeFilter]); // Added dependencies — this fixes the flicker!
 
-  const loadEverything = async () => {
-    // Load progress first (use maybeSingle to avoid 406)
-    const { data: progress, error } = await supabase
-      .from('user_progress')
-      .select('*')
-      .eq('user_id', session.user.id)
-      .maybeSingle();
-
-    if (error && error.code !== 'PGRST116') console.error(error);
-
-    if (progress) {
-      setCompleted(progress.completed_hunt_ids || []);
-      setStreak(progress.streak || 0);
-      setTotalHunts(progress.total_hunts || 0);
-      setTier(progress.tier || 'Newbie');
-    } else {
-      // New user — create default row
-      await supabase.from('user_progress').insert({
-        user_id: session.user.id,
-        completed_hunt_ids: [],
-        streak: 0,
-        total_hunts: 0,
-        tier: 'Newbie',
-      });
+  const loadProgress = async () => {
+    const { data } = await supabase.from('user_progress').select('*').eq('user_id', session.user.id).maybeSingle();
+    if (data) {
+      setCompleted(data.completed_hunt_ids || []);
+      setStreak(data.streak || 0);
+      setTotalHunts(data.total_hunts || 0);
+      setTier(data.tier || 'Newbie');
     }
-
-    fetchHunts();
   };
 
   const fetchHunts = async () => {
     const { data } = await supabase.from('hunts').select('*').order('date', { ascending: false });
     setHunts(data || []);
-    applyFilter(data || []);
   };
 
-  const applyFilter = (allHunts) => {
-    let filtered = allHunts.filter(h => !completed.includes(h.id)); // hide completed
+  useEffect(() => {
+    // Re-apply filter whenever hunts or completed change
+    const filtered = hunts.filter(h => !completed.includes(h.id));
 
-    if (activeFilter !== 'All') {
-      filtered = filtered.filter(h => h.category === activeFilter);
-    }
+    const finalFiltered = activeFilter === 'All' 
+      ? filtered 
+      : filtered.filter(h => h.category === activeFilter);
 
-    setFilteredHunts(filtered);
-  };
+    setFilteredHunts(finalFiltered);
+  }, [hunts, completed, activeFilter]);
 
   const filterHunts = (cat) => {
     setActiveFilter(cat);
-    applyFilter(hunts);
   };
 
   const startHunt = (hunt) => {
@@ -134,7 +115,6 @@ export default function App() {
       setShowModal(false);
       setSelfieFile(null);
       setCurrentHunt(null);
-      applyFilter(hunts); // Refresh list
     } catch (error) {
       alert('Upload failed: ' + error.message);
     }
@@ -155,8 +135,10 @@ export default function App() {
   };
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut({ scope: 'global' });
+    const { error } = await supabase.auth.signOut();
     if (error) console.error('Logout error:', error);
+    // Force local session clear even if server throws
+    setSession(null);
   };
 
   if (!session) {
@@ -231,26 +213,24 @@ export default function App() {
           {filteredHunts.length === 0 ? (
             <p className="text-center text-gray-600 text-xl py-12">No {activeFilter === 'All' ? '' : activeFilter} hunts right now — check back soon!</p>
           ) : (
-            filteredHunts.map(hunt => {
-              return (
-                <div key={hunt.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden">
-                  <div className="relative">
-                    <img src={hunt.photo || "https://picsum.photos/400/300"} alt="Clue" className="w-full h-72 object-cover" />
-                  </div>
-                  <div className="p-8">
-                    <span className="inline-block px-5 py-2 bg-amber-200 text-amber-800 rounded-full text-sm font-bold mb-4">
-                      {hunt.category}
-                    </span>
-                    <p className="text-2xl font-bold mb-4 text-gray-800">{hunt.riddle}</p>
-                    <p className="text-xl font-medium text-gray-700 mb-2">{hunt.business_name}</p>
-                    <p className="text-lg text-gray-600 mb-8">{hunt.discount}</p>
-                    <button onClick={() => startHunt(hunt)} className="w-full bg-green-600 hover:bg-green-700 text-white py-6 rounded-2xl font-black text-2xl shadow-xl">
-                      I'm at the spot!
-                    </button>
-                  </div>
+            filteredHunts.map(hunt => (
+              <div key={hunt.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden">
+                <div className="relative">
+                  <img src={hunt.photo || "https://picsum.photos/400/300"} alt="Clue" className="w-full h-72 object-cover" />
                 </div>
-              );
-            })
+                <div className="p-8">
+                  <span className="inline-block px-5 py-2 bg-amber-200 text-amber-800 rounded-full text-sm font-bold mb-4">
+                    {hunt.category}
+                  </span>
+                  <p className="text-2xl font-bold mb-4 text-gray-800">{hunt.riddle}</p>
+                  <p className="text-xl font-medium text-gray-700 mb-2">{hunt.business_name}</p>
+                  <p className="text-lg text-gray-600 mb-8">{hunt.discount}</p>
+                  <button onClick={() => startHunt(hunt)} className="w-full bg-green-600 hover:bg-green-700 text-white py-6 rounded-2xl font-black text-2xl shadow-xl">
+                    I'm at the spot!
+                  </button>
+                </div>
+              </div>
+            ))
           )}
         </div>
       </div>
