@@ -6,6 +6,17 @@ const supabaseUrl = 'https://eeboxlitezqgjyrnssgx.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlYm94bGl0ZXpxZ2p5cm5zc2d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2NjcyNTksImV4cCI6MjA4MDI0MzI1OX0.8VlGLHjEv_0aGWOjiDuLLziOCnUqciIAEWayMUGsXT8';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371000; // Earth's radius in meters
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c; // Distance in meters
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [email, setEmail] = useState('');
@@ -37,27 +48,19 @@ export default function App() {
 
   useEffect(() => {
     if (session) {
-      console.log('Session loaded:', session.user.id);
       setDataLoaded(false);
       loadProgressAndHunts();
-
-      // Optional polling for new admin-added hunts
       const interval = setInterval(fetchHunts, 10000);
       return () => clearInterval(interval);
-    } else {
-      console.log('No session');
     }
   }, [session]);
 
   const loadProgressAndHunts = async () => {
-    console.log('Loading progress for user:', session.user.id);
-    const { data: progress, error } = await supabase
+    const { data: progress } = await supabase
       .from('user_progress')
       .select('*')
       .eq('user_id', session.user.id)
       .maybeSingle();
-    console.log('Progress data:', progress);
-    console.log('Progress error:', error);
 
     if (progress) {
       const completedIds = progress.completed_hunt_ids;
@@ -74,13 +77,9 @@ export default function App() {
       setLastActive(null);
     }
 
-    // Then load hunts
     const { data } = await supabase.from('hunts').select('*').order('date', { ascending: false });
     setHunts(data || []);
-
-    // Apply filter only when both are ready
     applyFilter(data || []);
-
     setDataLoaded(true);
   };
 
@@ -90,7 +89,7 @@ export default function App() {
     applyFilter(data || []);
   };
 
-  const applyFilter = (allHunts = hunts, completedIds = completed) => {
+  const applyFilter = (allHunts, completedIds = completed) => {
     let filtered = allHunts.filter(h => !completedIds.includes(h.id));
 
     if (activeFilter !== 'All') {
@@ -115,6 +114,21 @@ export default function App() {
 
     setUploading(true);
     try {
+      // Get user's location
+      const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true });
+      });
+
+      const userLat = position.coords.latitude;
+      const userLon = position.coords.longitude;
+
+      const distance = calculateDistance(userLat, userLon, currentHunt.lat, currentHunt.lon);
+
+      if (distance > currentHunt.radius) {
+        alert('You are not at the spot!');
+        return;
+      }
+
       const fileExt = selfieFile.name.split('.').pop();
       const fileName = `${session.user.id}_${Date.now()}.${fileExt}`;
       const { error: uploadError } = await supabase.storage.from('selfies').upload(fileName, selfieFile);
@@ -150,30 +164,14 @@ export default function App() {
 
       const newTier = newTotal >= 20 ? 'Legend' : newTotal >= 10 ? 'Pro' : newTotal >= 5 ? 'Hunter' : 'Newbie';
 
-      // Check if row exists, then update or insert
-      const { data: existing } = await supabase.from('user_progress').select('user_id').eq('user_id', session.user.id).maybeSingle();
-      console.log('Existing progress before save:', existing);
-
-      if (existing) {
-        await supabase.from('user_progress').update({
-          completed_hunt_ids: newCompleted,
-          total_hunts: newTotal,
-          streak: newStreak,
-          tier: newTier,
-          last_active: today,
-        }).eq('user_id', session.user.id);
-      } else {
-        await supabase.from('user_progress').insert({
-          user_id: session.user.id,
-          completed_hunt_ids: newCompleted,
-          total_hunts: newTotal,
-          streak: newStreak,
-          tier: newTier,
-          last_active: today,
-        });
-      }
-
-      console.log('Saved progress for user ID:', session.user.id);
+      await supabase.from('user_progress').upsert({
+        user_id: session.user.id,
+        completed_hunt_ids: newCompleted,
+        total_hunts: newTotal,
+        streak: newStreak,
+        tier: newTier,
+        last_active: today,
+      }, { returning: 'minimal' });
 
       setCompleted(newCompleted);
       setTotalHunts(newTotal);
@@ -187,7 +185,11 @@ export default function App() {
 
       applyFilter(hunts, newCompleted);
     } catch (error) {
-      alert('Upload failed: ' + error.message);
+      if (error.code === 'PERMISSION_DENIED') {
+        alert('Location access is required to complete the hunt.');
+      } else {
+        alert('Upload failed: ' + error.message);
+      }
     } finally {
       setUploading(false);
     }
@@ -195,22 +197,16 @@ export default function App() {
 
   const signUp = async () => {
     setLoading(true); setAuthError('');
-    try {
-      const { error } = await supabase.auth.signUp({ email, password });
-      if (error) setAuthError(error.message);
-    } finally {
-      setLoading(false);
-    }
+    const { error } = await supabase.auth.signUp({ email, password });
+    if (error) setAuthError(error.message);
+    setLoading(false);
   };
 
   const signIn = async () => {
     setLoading(true); setAuthError('');
-    try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) setAuthError(error.message);
-    } finally {
-      setLoading(false);
-    }
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) setAuthError(error.message);
+    setLoading(false);
   };
 
   const signOut = async () => {
