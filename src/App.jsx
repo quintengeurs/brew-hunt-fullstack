@@ -146,14 +146,14 @@ export default function App() {
       const newTier = newTotal >= 20 ? 'Legend' : newTotal >= 10 ? 'Pro' : newTotal >= 5 ? 'Hunter' : 'Newbie';
 
       // <-- THE CRITICAL FIX: prevent Supabase from doing a post-write SELECT
-      await supabase.from('user_progress').upsert({
-        user_id: session.user.id,
-        completed_hunt_ids: newCompleted,
-        total_hunts: newTotal,
-        streak: newStreak,
-        tier: newTier,
-        last_active: today,
-      }, { returning: 'minimal' });
+await supabase.from('user_progress').upsert({
+  user_id: session.user.id,
+  completed_hunt_ids: newCompleted,
+  total_hunts: newTotal,
+  streak: newStreak,
+  tier: newTier,
+  last_active: today,
+}, { returning: 'minimal' });  // <-- THIS LINE IS THE FINAL FIX
 
       setCompleted(newCompleted);
       setTotalHunts(newTotal);
