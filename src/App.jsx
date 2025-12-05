@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { LogOut, Trophy, CheckCircle } from 'lucide-react';
+import { LogOut, Trophy } from 'lucide-react';
 
 const supabaseUrl = 'https://eeboxlitezqgjyrnssgx.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlYm94bGl0ZXpxZ2p5cm5zc2d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2NjcyNTksImV4cCI6MjA4MDI0MzI1OX0.8VlGLHjEv_0aGWOjiDuLLziOCnUqciIAEWayMUGsXT8';
@@ -34,33 +34,48 @@ export default function App() {
 
   useEffect(() => {
     if (session) {
-      loadProgress();
-      fetchHunts();
+      loadProgressAndHunts();
       const interval = setInterval(fetchHunts, 5000);
       return () => clearInterval(interval);
     }
   }, [session]);
 
-  const loadProgress = async () => {
-    const { data } = await supabase.from('user_progress').select('*').eq('user_id', session.user.id).single();
-    if (data) {
-      setCompleted(data.completed_hunt_ids || []);
-      setStreak(data.streak || 0);
-      setTotalHunts(data.total_hunts || 0);
-      setTier(data.tier || 'Newbie');
+  const loadProgressAndHunts = async () => {
+    // Load progress first
+    const { data: progress } = await supabase.from('user_progress').select('*').eq('user_id', session.user.id).single();
+    if (progress) {
+      setCompleted(progress.completed_hunt_ids || []);
+      setStreak(progress.streak || 0);
+      setTotalHunts(progress.total_hunts || 0);
+      setTier(progress.tier || 'Newbie');
     }
+
+    // Then load hunts and filter
+    fetchHunts();
   };
 
   const fetchHunts = async () => {
     const { data } = await supabase.from('hunts').select('*').order('date', { ascending: false });
     setHunts(data || []);
-    filterHunts(activeFilter);
+    applyFilter(data || []);
+  };
+
+  const applyFilter = (allHunts) => {
+    let filtered = allHunts;
+
+    // Always hide completed hunts from main list
+    filtered = filtered.filter(h => !completed.includes(h.id));
+
+    if (activeFilter !== 'All') {
+      filtered = filtered.filter(h => h.category === activeFilter);
+    }
+
+    setFilteredHunts(filtered);
   };
 
   const filterHunts = (cat) => {
     setActiveFilter(cat);
-    const filtered = cat === 'All' ? hunts : hunts.filter(h => h.category === cat);
-    setFilteredHunts(filtered);
+    applyFilter(hunts);
   };
 
   const startHunt = (hunt) => {
@@ -107,6 +122,7 @@ export default function App() {
       setShowModal(false);
       setSelfieFile(null);
       setCurrentHunt(null);
+      applyFilter(hunts); // Refresh list to hide the newly completed hunt
     } catch (error) {
       alert('Upload failed: ' + error.message);
     }
@@ -202,16 +218,10 @@ export default function App() {
             <p className="text-center text-gray-600 text-xl py-12">No {activeFilter === 'All' ? '' : activeFilter} hunts right now — check back soon!</p>
           ) : (
             filteredHunts.map(hunt => {
-              const done = completed.includes(hunt.id);
               return (
                 <div key={hunt.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden">
                   <div className="relative">
                     <img src={hunt.photo || "https://picsum.photos/400/300"} alt="Clue" className="w-full h-72 object-cover" />
-                    {done && (
-                      <div className="absolute top-4 right-[-60px] rotate-45 bg-green-600 text-white px-20 py-4 font-black text-lg shadow-2xl">
-                        CODE: {hunt.code}
-                      </div>
-                    )}
                   </div>
                   <div className="p-8">
                     <span className="inline-block px-5 py-2 bg-amber-200 text-amber-800 rounded-full text-sm font-bold mb-4">
@@ -220,13 +230,9 @@ export default function App() {
                     <p className="text-2xl font-bold mb-4 text-gray-800">{hunt.riddle}</p>
                     <p className="text-xl font-medium text-gray-700 mb-2">{hunt.business_name}</p>
                     <p className="text-lg text-gray-600 mb-8">{hunt.discount}</p>
-                    {done ? (
-                      <p className="text-green-600 font-black text-2xl text-center">Completed!</p>
-                    ) : (
-                      <button onClick={() => startHunt(hunt)} className="w-full bg-green-600 hover:bg-green-700 text-white py-6 rounded-2xl font-black text-2xl shadow-xl">
-                        I'm at the spot!
-                      </button>
-                    )}
+                    <button onClick={() => startHunt(hunt)} className="w-full bg-green-600 hover:bg-green-700 text-white py-6 rounded-2xl font-black text-2xl shadow-xl">
+                      I'm at the spot!
+                    </button>
                   </div>
                 </div>
               );
