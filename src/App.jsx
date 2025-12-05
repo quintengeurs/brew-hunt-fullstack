@@ -43,7 +43,13 @@ export default function App() {
   }, [session]);
 
   const loadProgressAndHunts = async () => {
-    const { data: progress } = await supabase.from('user_progress').select('*').eq('user_id', session.user.id).maybeSingle();
+    // Load progress FIRST
+    const { data: progress } = await supabase
+      .from('user_progress')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .maybeSingle();
+
     if (progress) {
       setCompleted(progress.completed_hunt_ids || []);
       setStreak(progress.streak || 0);
@@ -56,6 +62,7 @@ export default function App() {
       setTier('Newbie');
     }
 
+    // Then load hunts
     await fetchHunts();
     setDataLoaded(true);
   };
@@ -67,7 +74,7 @@ export default function App() {
   };
 
   const applyFilter = (allHunts) => {
-    let filtered = allHunts.filter(h => !completed.includes(h.id));
+    let filtered = allHunts.filter(h => !completed.includes(h.id)); // hide completed
 
     if (activeFilter !== 'All') {
       filtered = filtered.filter(h => h.category === activeFilter);
@@ -126,7 +133,7 @@ export default function App() {
       setSelfieFile(null);
       setCurrentHunt(null);
 
-      // FIXED: Re-apply filter with current hunts to hide the completed one immediately
+      // Re-apply filter to hide the newly completed hunt
       applyFilter(hunts);
     } catch (error) {
       alert('Upload failed: ' + error.message);
