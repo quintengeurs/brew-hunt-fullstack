@@ -8,6 +8,15 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const ADMIN_EMAIL = 'quinten.geurs@gmail.com';
 
+// Safe image handler — prevents crashes from bad URLs or base64
+const getSafePhotoUrl = (url) => {
+  if (!url) return "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=800&h=600&fit=crop";
+  if (typeof url === 'string' && (url.startsWith('http') || url.startsWith('https') || url.startsWith('data:image/'))) {
+    return url;
+  }
+  return "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=800&h=600&fit=crop";
+};
+
 function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -85,16 +94,16 @@ export default function App() {
 
   // ─── AUTH & ADMIN DETECTION ─────────────────────
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      if (data.session?.user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session?.user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
         setIsAdmin(true);
       }
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_, s) => {
-      setSession(s);
-      if (s?.user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session?.user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
         setIsAdmin(true);
       } else {
         setIsAdmin(false);
@@ -118,9 +127,9 @@ export default function App() {
 
     const progressChannel = supabase
       .channel('progress-changes')
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
         table: 'user_progress',
         filter: `user_id=eq.${session.user.id}`
       }, () => {
@@ -161,9 +170,8 @@ export default function App() {
 
       if (progress) {
         completedIds = Array.isArray(progress.completed_hunt_ids) ? progress.completed_hunt_ids : [];
-        
+
         if (progressRows.length > 1) {
-          // Handle duplicate records - merge and clean up
           const all = new Set();
           let maxTotal = 0, maxStreak = 0;
           progressRows.forEach(r => {
@@ -174,8 +182,7 @@ export default function App() {
           completedIds = Array.from(all);
           setTotalHunts(completedIds.length);
           setStreak(maxStreak);
-          
-          // Clean up duplicates (keep only the first one)
+
           for (let i = 1; i < progressRows.length; i++) {
             await supabase.from('user_progress').delete().eq('id', progressRows[i].id);
           }
@@ -221,7 +228,7 @@ export default function App() {
         .select('*')
         .lte('date', today)
         .order('date', { ascending: false });
-      
+
       if (error) throw error;
       setHunts(data || []);
     } catch (e) {
@@ -244,8 +251,7 @@ export default function App() {
   // ─── SELFIE UPLOAD ─────────────────────────────
   const uploadSelfie = async () => {
     if (!selfieFile || !currentHunt || uploading) return;
-    
-    // Check if already completed
+
     if (completed.includes(currentHunt.id)) {
       alert('You have already completed this hunt!');
       setShowModal(false);
@@ -255,24 +261,19 @@ export default function App() {
 
     setUploading(true);
     setError('');
-    
+
     try {
-      // Check geolocation permission
       if (!navigator.geolocation) {
         throw new Error('Geolocation is not supported by your browser');
       }
 
       const position = await new Promise((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(
-          resolve, 
+          resolve,
           (err) => {
-            if (err.code === 1) {
-              reject(new Error('Location permission denied. Please enable location access.'));
-            } else if (err.code === 2) {
-              reject(new Error('Location unavailable. Please try again.'));
-            } else {
-              reject(new Error('Location timeout. Please try again.'));
-            }
+            if (err.code === 1) reject(new Error('Location permission denied. Please enable location access.'));
+            else if (err.code === 2) reject(new Error('Location unavailable. Please try again.'));
+            else reject(new Error('Location timeout. Please try again.'));
           },
           { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
@@ -289,22 +290,21 @@ export default function App() {
         alert(`You are ${Math.round(distance)}m away. You need to be within ${currentHunt.radius}m of the spot!`);
         setUploading(false);
         return;
+        return;
       }
 
-      // Upload selfie
       const fileExt = selfieFile.name.split('.').pop();
       const fileName = `selfies/${session.user.id}_${currentHunt.id}_${Date.now()}.${fileExt}`;
       const { error: uploadError } = await supabase.storage
         .from('submissions')
         .upload(fileName, selfieFile);
-      
+
       if (uploadError) throw uploadError;
 
       const { data: { publicUrl } } = supabase.storage
         .from('submissions')
         .getPublicUrl(fileName);
 
-      // Insert selfie record
       const { error: insertError } = await supabase.from('selfies').insert({
         user_id: session.user.id,
         hunt_id: currentHunt.id,
@@ -312,18 +312,16 @@ export default function App() {
       });
 
       if (insertError) {
-        // Cleanup uploaded file
         await supabase.storage.from('submissions').remove([fileName]);
         throw insertError;
       }
 
-      // Update progress
       const newCompleted = [...new Set([...completed, currentHunt.id])];
       const newTotal = newCompleted.length;
 
       const today = getTodayLocalDate();
       const yesterday = getYesterdayLocalDate();
-      
+
       let newStreak = 1;
       if (lastActive) {
         if (lastActive === yesterday) {
@@ -355,7 +353,7 @@ export default function App() {
       setShowModal(false);
       setSelfieFile(null);
       setCurrentHunt(null);
-      
+
       alert(`Success! Your code is: ${currentHunt.code}`);
     } catch (error) {
       console.error('Upload error:', error);
@@ -378,7 +376,6 @@ export default function App() {
 
       if (error) throw error;
 
-      // Get user emails
       const enriched = await Promise.all(
         (data || []).map(async (item) => {
           const { data: userData } = await supabase.auth.admin.getUserById(item.user_id);
@@ -412,7 +409,7 @@ export default function App() {
         .from('hunts')
         .select('*')
         .order('date', { ascending: false });
-      
+
       if (huntsError) throw huntsError;
       setAdminHunts(allHunts || []);
 
@@ -420,10 +417,9 @@ export default function App() {
         .from('selfies')
         .select('*')
         .order('created_at', { ascending: false });
-      
+
       if (subsError) throw subsError;
 
-      // Enrich with hunt and user data
       const enriched = await Promise.all(
         (subs || []).map(async (sub) => {
           const { data: hunt } = await supabase
@@ -431,11 +427,11 @@ export default function App() {
             .select('business_name')
             .eq('id', sub.hunt_id)
             .single();
-          
+
           return {
             ...sub,
             hunt_name: hunt?.business_name || 'Unknown',
-            user_email: sub.user_id // In production, fetch from auth
+            user_email: sub.user_id
           };
         })
       );
@@ -447,7 +443,7 @@ export default function App() {
     }
   };
 
-  // ─── CREATE NEW HUNT ───────────────────────────
+  // ─── CREATE NEW HUNT – FIXED & SAFE ───────────────────────────
   const createHunt = async () => {
     if (!newHuntBusinessName.trim() || !newHuntRiddle.trim() || !newHuntCode.trim() || !newHuntLat || !newHuntLon) {
       alert('Please fill all required fields (Business Name, Riddle, Code, Latitude, Longitude)');
@@ -464,19 +460,22 @@ export default function App() {
     setCreatingHunt(true);
     try {
       let photoUrl = null;
+
       if (newHuntPhoto) {
         const fileExt = newHuntPhoto.name.split('.').pop();
         const fileName = `hunt_${Date.now()}.${fileExt}`;
-        const path = `hunts/${fileName}`;
+        const path = `hunts/${fileName}`; // Clean folder
+
         const { error: uploadError } = await supabase.storage
-          .from('hunts')
+          .from('hunts')  // CORRECT BUCKET
           .upload(path, newHuntPhoto);
-        
+
         if (uploadError) throw uploadError;
 
         const { data: { publicUrl } } = supabase.storage
-          .from('hunts')
+          .from('hunts')  // CORRECT BUCKET
           .getPublicUrl(path);
+
         photoUrl = publicUrl;
       }
 
@@ -498,9 +497,15 @@ export default function App() {
       if (error) throw error;
 
       alert('Hunt created successfully!');
-      setNewHuntDate(''); setNewHuntCategory(''); setNewHuntRiddle(''); 
-      setNewHuntBusinessName(''); setNewHuntCode(''); setNewHuntDiscount(''); 
-      setNewHuntLat(''); setNewHuntLon(''); setNewHuntRadius('50'); 
+      setNewHuntDate('');
+      setNewHuntCategory('');
+      setNewHuntRiddle('');
+      setNewHuntBusinessName('');
+      setNewHuntCode('');
+      setNewHuntDiscount('');
+      setNewHuntLat('');
+      setNewHuntLon('');
+      setNewHuntRadius('50');
       setNewHuntPhoto(null);
       loadAdminData();
       setAdminTab('hunts');
@@ -528,7 +533,7 @@ export default function App() {
 
   const rejectSelfie = async (id) => {
     if (!confirm('Are you sure you want to reject this submission?')) return;
-    
+
     setProcessingSubmission(id);
     try {
       const { error } = await supabase.from('selfies').delete().eq('id', id);
@@ -547,15 +552,13 @@ export default function App() {
       setAuthError('Please enter email and password');
       return;
     }
-    setLoading(true); 
+    setLoading(true);
     setAuthError('');
     try {
-      const { error } = await supabase.auth.signUp({ 
-        email: email.trim(), 
+      const { error } = await supabase.auth.signUp({
+        email: email.trim(),
         password,
-        options: {
-          emailRedirectTo: window.location.origin
-        }
+        options: { emailRedirectTo: window.location.origin }
       });
       if (error) throw error;
       alert('Check your email to confirm your account!');
@@ -571,12 +574,12 @@ export default function App() {
       setAuthError('Please enter email and password');
       return;
     }
-    setLoading(true); 
+    setLoading(true);
     setAuthError('');
     try {
-      const { error } = await supabase.auth.signInWithPassword({ 
-        email: email.trim(), 
-        password 
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password
       });
       if (error) throw error;
     } catch (error) {
@@ -598,15 +601,14 @@ export default function App() {
       <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50">
         <div className="bg-white shadow-xl p-6 sticky top-0 z-50 flex justify-between items-center">
           <h1 className="text-4xl font-black text-amber-900 flex items-center gap-4">
-            <Shield className="text-amber-600" />
-            Admin Panel
+            Shield Admin Panel
           </h1>
           <div className="flex gap-4">
             <button onClick={() => setShowAdmin(false)} className="px-6 py-3 bg-gray-200 hover:bg-gray-300 rounded-full font-bold transition">
               Back to App
             </button>
             <button onClick={signOut} className="text-gray-600 hover:text-gray-800 transition">
-              <LogOut size={28} />
+              LogOut
             </button>
           </div>
         </div>
@@ -624,12 +626,16 @@ export default function App() {
             </button>
           </div>
 
-          {/* ACTIVE HUNTS */}
+          {/* ALL HUNTS */}
           {adminTab === 'hunts' && (
             <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
               {adminHunts.map(hunt => (
                 <div key={hunt.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden hover:shadow-3xl transition">
-                  {hunt.photo && <img src={hunt.photo} alt="" className="w-full h-64 object-cover" />}
+                  <img
+                    src={getSafePhotoUrl(hunt.photo)}
+                    alt={hunt.business_name}
+                    className="w-full h-64 object-cover"
+                  />
                   <div className="p-6">
                     <span className="inline-block px-4 py-1 bg-amber-200 text-amber-800 rounded-full text-xs font-bold mb-3">
                       {hunt.category}
@@ -659,21 +665,19 @@ export default function App() {
                       <p className="text-xl mb-2"><strong>Hunt:</strong> {sub.hunt_name}</p>
                       <p className="text-sm text-gray-600 mb-8">Submitted: {new Date(sub.created_at).toLocaleString()}</p>
                       <div className="flex gap-6">
-                        <button 
-                          onClick={() => approveSelfie(sub.id)} 
+                        <button
+                          onClick={() => approveSelfie(sub.id)}
                           disabled={processingSubmission === sub.id}
                           className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white py-5 rounded-2xl font-bold text-xl flex items-center justify-center gap-3 transition"
                         >
-                          <Check size={24} />
-                          {processingSubmission === sub.id ? 'Processing...' : 'Approve'}
+                          Check {processingSubmission === sub.id ? 'Processing...' : 'Approve'}
                         </button>
-                        <button 
-                          onClick={() => rejectSelfie(sub.id)} 
+                        <button
+                          onClick={() => rejectSelfie(sub.id)}
                           disabled={processingSubmission === sub.id}
                           className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white py-5 rounded-2xl font-bold text-xl flex items-center justify-center gap-3 transition"
                         >
-                          <X size={24} />
-                          {processingSubmission === sub.id ? 'Processing...' : 'Reject'}
+                          X {processingSubmission === sub.id ? 'Processing...' : 'Reject'}
                         </button>
                       </div>
                     </div>
@@ -690,20 +694,11 @@ export default function App() {
               <div className="grid md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Active From Date</label>
-                  <input 
-                    type="date" 
-                    value={newHuntDate} 
-                    onChange={e => setNewHuntDate(e.target.value)} 
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition" 
-                  />
+                  <input type="date" value={newHuntDate} onChange={e => setNewHuntDate(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition" />
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Category</label>
-                  <select 
-                    value={newHuntCategory} 
-                    onChange={e => setNewHuntCategory(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition"
-                  >
+                  <select value={newHuntCategory} onChange={e => setNewHuntCategory(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition">
                     <option value="">Select category</option>
                     <option value="Café">Café</option>
                     <option value="Barber">Barber</option>
@@ -715,86 +710,45 @@ export default function App() {
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-bold text-gray-700 mb-2">Business Name *</label>
-                  <input 
-                    type="text" 
-                    value={newHuntBusinessName} 
-                    onChange={e => setNewHuntBusinessName(e.target.value)} 
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition" 
-                    placeholder="e.g. Brew Coffee House" 
-                  />
+                  <input type="text" value={newHuntBusinessName} onChange={e => setNewHuntBusinessName(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition" placeholder="e.g. Brew Coffee House" />
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-bold text-gray-700 mb-2">Riddle / Clue *</label>
-                  <textarea 
-                    value={newHuntRiddle} 
-                    onChange={e => setNewHuntRiddle(e.target.value)} 
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg h-32 focus:border-amber-500 focus:outline-none transition" 
-                    placeholder="Write an intriguing riddle..." 
-                  />
+                  <textarea value={newHuntRiddle} onChange={e => setNewHuntRiddle(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg h-32 focus:border-amber-500 focus:outline-none transition" placeholder="Write an intriguing riddle..." />
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Secret Code *</label>
-                  <input 
-                    type="text" 
-                    value={newHuntCode} 
-                    onChange={e => setNewHuntCode(e.target.value)} 
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition" 
-                    placeholder="e.g. BREW2025" 
-                  />
+                  <input type="text" value={newHuntCode} onChange={e => setNewHuntCode(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition" placeholder="e.g. BREW2025" />
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Discount / Reward</label>
-                  <input 
-                    type="text" 
-                    value={newHuntDiscount} 
-                    onChange={e => setNewHuntDiscount(e.target.value)} 
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition" 
-                    placeholder="e.g. Free coffee" 
-                  />
+                  <input type="text" value={newHuntDiscount} onChange={e => setNewHuntDiscount(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition" placeholder="e.g. Free coffee" />
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Latitude *</label>
-                  <input 
-                    type="text" 
-                    value={newHuntLat} 
-                    onChange={e => setNewHuntLat(e.target.value)} 
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition" 
-                    placeholder="e.g. 51.5074" 
-                  />
+                  <input type="text" value={newHuntLat} onChange={e => setNewHuntLat(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition" placeholder="e.g. 51.5074" />
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Longitude *</label>
-                  <input 
-                    type="text" 
-                    value={newHuntLon} 
-                    onChange={e => setNewHuntLon(e.target.value)} 
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition" 
-                    placeholder="e.g. -0.1278" 
-                  />
+                  <input type="text" value={newHuntLon} onChange={e => setNewHuntLon(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition" placeholder="e.g. -0.1278" />
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Radius (meters)</label>
-                  <input 
-                    type="number" 
-                    value={newHuntRadius} 
-                    onChange={e => setNewHuntRadius(e.target.value)} 
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition" 
-                    placeholder="50" 
-                  />
+                  <input type="number" value={newHuntRadius} onChange={e => setNewHuntRadius(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition" placeholder="50" />
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-bold text-gray-700 mb-2">Hunt Photo</label>
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    onChange={e => setNewHuntPhoto(e.target.files?.[0] || null)} 
-                    className="w-full p-5 border-2 border-dashed border-amber-300 rounded-2xl bg-amber-50 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-amber-600 file:text-white hover:file:bg-amber-700 file:cursor-pointer" 
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={e => setNewHuntPhoto(e.target.files?.[0] || null)}
+                    className="w-full p-5 border-2 border-dashed border-amber-300 rounded-2xl bg-amber-50 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-amber-600 file:text-white hover:file:bg-amber-700 file:cursor-pointer"
                   />
                 </div>
               </div>
-              <button 
-                onClick={createHunt} 
-                disabled={creatingHunt} 
+              <button
+                onClick={createHunt}
+                disabled={creatingHunt}
                 className="mt-10 w-full bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white py-6 rounded-2xl font-black text-2xl shadow-xl transition"
               >
                 {creatingHunt ? 'Creating...' : 'Create Hunt'}
@@ -806,46 +760,46 @@ export default function App() {
     );
   }
 
-  // ─── MAIN APP ───────────────────────────────
+  // ─── LOGIN SCREEN ─────────────────────
   if (!session) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50 flex items-center justify-center px-6">
         <div className="bg-white rounded-3xl shadow-2xl p-12 max-w-md w-full text-center">
           <h1 className="text-6xl font-black text-amber-900 mb-4">Brew Hunt</h1>
           <p className="text-xl text-amber-800 mb-12">Real-world treasure hunts in Hackney</p>
-          
+
           {authError && (
             <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4 mb-6 flex items-start gap-3">
-              <AlertCircle className="text-red-600 flex-shrink-0 mt-1" size={20} />
+              AlertCircle className="text-red-600 flex-shrink-0 mt-1" size={20} />
               <p className="text-red-700 text-left">{authError}</p>
             </div>
           )}
-          
-          <input 
-            type="email" 
-            placeholder="you@example.com" 
-            value={email} 
-            onChange={e => setEmail(e.target.value)} 
-            className="w-full p-5 mb-4 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition" 
+
+          <input
+            type="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            className="w-full p-5 mb-4 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition"
           />
-          <input 
-            type="password" 
-            placeholder="password" 
-            value={password} 
-            onChange={e => setPassword(e.target.value)} 
+          <input
+            type="password"
+            placeholder="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
             onKeyPress={e => e.key === 'Enter' && signIn()}
-            className="w-full p-5 mb-8 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition" 
+            className="w-full p-5 mb-8 border-2 border-amber-200 rounded-2xl text-lg focus:border-amber-500 focus:outline-none transition"
           />
-          <button 
-            onClick={signUp} 
-            disabled={loading} 
+          <button
+            onClick={signUp}
+            disabled={loading}
             className="w-full bg-amber-600 hover:bg-amber-700 disabled:opacity-60 disabled:cursor-not-allowed text-white py-6 rounded-2xl font-bold text-2xl shadow-lg mb-4 transition"
           >
             {loading ? 'Creating...' : 'Sign Up Free'}
           </button>
-          <button 
-            onClick={signIn} 
-            disabled={loading} 
+          <button
+            onClick={signIn}
+            disabled={loading}
             className="w-full bg-gray-700 hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed text-white py-6 rounded-2xl font-bold text-2xl shadow-lg transition"
           >
             {loading ? 'Signing In...' : 'Log In'}
@@ -877,16 +831,15 @@ export default function App() {
           <h1 className="text-4xl font-black text-amber-900">Brew Hunt</h1>
           <div className="flex items-center gap-4">
             {isAdmin && (
-              <button 
-                onClick={() => setShowAdmin(true)} 
+              <button
+                onClick={() => setShowAdmin(true)}
                 className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-full font-bold flex items-center gap-2 shadow-lg transition"
               >
-                <Shield size={20} />
-                Admin
+                Shield Admin
               </button>
             )}
             <button onClick={signOut} className="text-gray-600 hover:text-gray-800 transition">
-              <LogOut size={28} />
+              LogOut
             </button>
           </div>
         </div>
@@ -896,13 +849,10 @@ export default function App() {
       {error && (
         <div className="max-w-md mx-auto px-6 pt-6">
           <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4 flex items-start gap-3">
-            <AlertCircle className="text-red-600 flex-shrink-0 mt-1" size={20} />
+            AlertCircle className="text-red-600 flex-shrink-0 mt-1" size={20} />
             <div className="flex-1">
               <p className="text-red-700">{error}</p>
-              <button 
-                onClick={() => setError('')} 
-                className="text-red-800 underline text-sm mt-1 font-bold"
-              >
+              <button onClick={() => setError('')} className="text-red-800 underline text-sm mt-1 font-bold">
                 Dismiss
               </button>
             </div>
@@ -920,8 +870,8 @@ export default function App() {
             </div>
             <div className="text-right">
               <div className="text-3xl font-black text-purple-600">{tier}</div>
-              <button 
-                onClick={() => setShowCompletedModal(true)} 
+              <button
+                onClick={() => setShowCompletedModal(true)}
                 className="text-xl underline text-gray-700 hover:text-gray-900 transition"
               >
                 {totalHunts} completed · {activeHuntsCount} active
@@ -935,12 +885,12 @@ export default function App() {
       <div className="max-w-md mx-auto px-6">
         <div className="flex flex-wrap gap-3 justify-center mb-8">
           {['All', 'Café', 'Barber', 'Restaurant', 'Gig', 'Museum'].map(cat => (
-            <button 
-              key={cat} 
-              onClick={() => setActiveFilter(cat)} 
+            <button
+              key={cat}
+              onClick={() => setActiveFilter(cat)}
               className={`px-6 py-3 rounded-full font-bold transition shadow-lg ${
-                activeFilter === cat 
-                  ? 'bg-amber-600 text-white scale-105' 
+                activeFilter === cat
+                  ? 'bg-amber-600 text-white scale-105'
                   : 'bg-white text-gray-700 hover:bg-amber-50'
               }`}
             >
@@ -950,16 +900,15 @@ export default function App() {
         </div>
 
         <div className="text-center mb-8">
-          <button 
-            onClick={() => setShowLeaderboard(true)} 
+          <button
+            onClick={() => setShowLeaderboard(true)}
             className="text-amber-700 underline font-bold text-xl flex items-center gap-2 mx-auto hover:text-amber-900 transition"
           >
-            <Trophy size={24} />
-            Leaderboard
+            Trophy Leaderboard
           </button>
         </div>
 
-        {/* Hunts */}
+        {/* Hunts List */}
         <div className="space-y-8 pb-24">
           {filteredHunts.length === 0 ? (
             <div className="text-center py-12 bg-white rounded-3xl shadow-xl p-8">
@@ -972,10 +921,10 @@ export default function App() {
             filteredHunts.map(hunt => (
               <div key={hunt.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden hover:shadow-3xl transition">
                 <div className="relative">
-                  <img 
-                    src={hunt.photo || "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=400&h=300&fit=crop"} 
-                    alt="Hunt location" 
-                    className="w-full h-72 object-cover" 
+                  <img
+                    src={getSafePhotoUrl(hunt.photo)}
+                    alt={hunt.business_name}
+                    className="w-full h-72 object-cover"
                   />
                 </div>
                 <div className="p-8">
@@ -985,13 +934,13 @@ export default function App() {
                   <p className="text-2xl font-bold mb-4 text-gray-800">{hunt.riddle}</p>
                   <p className="text-xl font-medium text-gray-700 mb-2">{hunt.business_name}</p>
                   {hunt.discount && (
-                    <p className="text-lg text-green-600 font-semibold mb-8">🎁 {hunt.discount}</p>
+                    <p className="text-lg text-green-600 font-semibold mb-8">Gift {hunt.discount}</p>
                   )}
-                  <button 
-                    onClick={() => { 
-                      setCurrentHunt(hunt); 
-                      setShowModal(true); 
-                    }} 
+                  <button
+                    onClick={() => {
+                      setCurrentHunt(hunt);
+                      setShowModal(true);
+                    }}
                     className="w-full bg-green-600 hover:bg-green-700 text-white py-6 rounded-2xl font-black text-2xl shadow-xl transition"
                   >
                     I'm at the spot!
@@ -1007,13 +956,10 @@ export default function App() {
       {showCompletedModal && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-6">
           <div className="bg-white rounded-3xl shadow-2xl p-12 max-w-md w-full text-center relative max-h-[90vh] overflow-y-auto">
-            <button 
-              onClick={() => setShowCompletedModal(false)} 
-              className="absolute top-6 right-6 text-4xl text-gray-500 hover:text-gray-700 transition"
-            >
-              &times;
+            <button onClick={() => setShowCompletedModal(false)} className="absolute top-6 right-6 text-4xl text-gray-500 hover:text-gray-700 transition">
+              ×
             </button>
-            <Trophy className="w-16 h-16 text-amber-600 mx-auto mb-6" />
+            Trophy className="w-16 h-16 text-amber-600 mx-auto mb-6" />
             <h2 className="text-4xl font-black text-amber-900 mb-10">Your Completed Hunts ({totalHunts})</h2>
             {completedHunts.length === 0 ? (
               <p className="text-gray-600 text-xl">No completed hunts yet — get hunting!</p>
@@ -1021,10 +967,10 @@ export default function App() {
               <div className="space-y-8">
                 {completedHunts.map(hunt => (
                   <div key={hunt.id} className="bg-gray-50 rounded-2xl p-6 text-left">
-                    <img 
-                      src={hunt.photo || "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=400&h=300&fit=crop"} 
-                      alt="Hunt" 
-                      className="w-full h-48 object-cover rounded-xl mb-4" 
+                    <img
+                      src={getSafePhotoUrl(hunt.photo)}
+                      alt="Hunt"
+                      className="w-full h-48 object-cover rounded-xl mb-4"
                     />
                     <p className="text-xl font-bold text-gray-800 mb-2">{hunt.riddle}</p>
                     <p className="text-lg text-gray-700 mb-2">{hunt.business_name}</p>
@@ -1044,43 +990,43 @@ export default function App() {
       {showModal && currentHunt && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-6">
           <div className="bg-white rounded-3xl shadow-2xl p-12 max-w-md w-full text-center relative">
-            <button 
-              onClick={() => { 
-                setShowModal(false); 
-                setSelfieFile(null); 
+            <button
+              onClick={() => {
+                setShowModal(false);
+                setSelfieFile(null);
                 setCurrentHunt(null);
-              }} 
+              }}
               className="absolute top-6 right-6 text-4xl text-gray-500 hover:text-gray-700 transition"
             >
-              &times;
+              ×
             </button>
             <h3 className="text-4xl font-black text-gray-800 mb-4">Show the logo!</h3>
             <p className="text-xl text-gray-600 mb-2">Take a selfie with the business logo</p>
             <p className="text-lg text-amber-600 font-bold mb-10">Win £50 weekly for best selfie!</p>
-            
+
             {selfieFile && (
               <div className="mb-6 p-4 bg-green-50 rounded-2xl">
-                <p className="text-green-700 font-semibold">✓ Photo ready!</p>
+                <p className="text-green-700 font-semibold">Photo ready!</p>
               </div>
             )}
-            
-            <input 
-              type="file" 
-              accept="image/*" 
-              capture="environment" 
-              onChange={e => setSelfieFile(e.target.files?.[0] || null)} 
-              className="hidden" 
-              id="camera" 
+
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={e => setSelfieFile(e.target.files?.[0] || null)}
+              className="hidden"
+              id="camera"
             />
-            <label 
-              htmlFor="camera" 
+            <label
+              htmlFor="camera"
               className="w-44 h-44 bg-green-600 hover:bg-green-700 text-white rounded-full flex items-center justify-center shadow-2xl text-5xl cursor-pointer mx-auto mb-12 transition hover:scale-105"
             >
-              <span className="text-2xl font-bold">📸 Camera</span>
+              <span className="text-2xl font-bold">Camera</span>
             </label>
-            <button 
-              onClick={uploadSelfie} 
-              disabled={!selfieFile || uploading} 
+            <button
+              onClick={uploadSelfie}
+              disabled={!selfieFile || uploading}
               className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white py-6 rounded-2xl font-black text-2xl shadow-xl transition"
             >
               {uploading ? 'Uploading...' : 'Submit & Unlock Code'}
@@ -1092,19 +1038,16 @@ export default function App() {
         </div>
       )}
 
-      {/* Leaderboard */}
+      {/* Leaderboard Modal */}
       {showLeaderboard && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-6">
           <div className="bg-white rounded-3xl shadow-2xl p-12 max-w-md w-full text-center relative">
-            <button 
-              onClick={() => setShowLeaderboard(false)} 
-              className="absolute top-6 right-6 text-4xl text-gray-500 hover:text-gray-700 transition"
-            >
-              &times;
+            <button onClick={() => setShowLeaderboard(false)} className="absolute top-6 right-6 text-4xl text-gray-500 hover:text-gray-700 transition">
+              ×
             </button>
-            <Trophy className="w-16 h-16 text-amber-600 mx-auto mb-6" />
+            Trophy className="w-16 h-16 text-amber-600 mx-auto mb-6" />
             <h2 className="text-4xl font-black text-amber-900 mb-10">Hackney Top Hunters</h2>
-            
+
             {loadingLeaderboard ? (
               <div className="py-12">
                 <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-4 border-amber-600"></div>
@@ -1114,8 +1057,8 @@ export default function App() {
             ) : (
               <div className="space-y-6 text-left">
                 {leaderboardData.map((user, idx) => (
-                  <div 
-                    key={idx} 
+                  <div
+                    key={idx}
                     className={`p-6 rounded-2xl ${
                       idx === 0 ? 'bg-amber-100' : idx === 1 ? 'bg-gray-100' : idx === 2 ? 'bg-orange-50' : 'bg-gray-50'
                     }`}
