@@ -17,6 +17,7 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
+  const [newHuntDate, setNewHuntDate] = useState(''); // for date picker
 }
 
 export default function App() {
@@ -237,47 +238,59 @@ export default function App() {
     setSubmissions(subs || []);
   };
 
-  // ─── CREATE NEW HUNT ───────────────────────────
-  const createHunt = async () => {
-    if (!newHuntName || !newHuntRiddle || !newHuntCode || !newHuntLat || !newHuntLon) {
-      alert('Please fill in all required fields');
-      return;
+// ─── CREATE NEW HUNT (NOW WITH DATE PICKER) ───────────────────────────
+const createHunt = async () => {
+  if (!newHuntName || !newHuntRiddle || !newHuntCode || !newHuntLat || !newHuntLon) {
+    alert('Please fill in all required fields');
+    return;
+  }
+
+  setCreatingHunt(true);
+  try {
+    let photoUrl = null;
+    if (newHuntPhoto) {
+      const fileExt = newHuntPhoto.name.split('.').pop();
+      const fileName = `hunt_${Date.now()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage
+        .from('hunts')
+        .upload(fileName, newHuntPhoto);
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('hunts')
+        .getPublicUrl(fileName);
+      photoUrl = publicUrl;
     }
 
-    setCreatingHunt(true);
-    try {
-      let photoUrl = null;
-      if (newHuntPhoto) {
-        const fileExt = newHuntPhoto.name.split('.').pop();
-        const fileName = `hunt_${Date.now()}.${fileExt}`;
-        const { error: uploadError } = await supabase.storage.from('hunts').upload(fileName, newHuntPhoto);
-        if (uploadError) throw uploadError;
-        const { data: { publicUrl } } = supabase.storage.from('hunts').getPublicUrl(fileName);
-        photoUrl = publicUrl;
-      }
+    const selectedDate = newHuntDate || new Date().toISOString().split('T')[0]; // default today
 
-      await supabase.from('hunts').insert({
-        business_name: newHuntName,
-        riddle: newHuntRiddle,
-        code: newHuntCode,
-        category: newHuntCategory || 'Food & Drink',
-        lat: parseFloat(newHuntLat),
-        lon: parseFloat(newHuntLon),
-        radius: parseInt(newHuntRadius) || 50,
-        photo: photoUrl,
-        date: new Date().toISOString(),
-      });
+    const { error } = await supabase.from('hunts').insert({
+      business_name: newHuntName.trim(),
+      riddle: newHuntRiddle.trim(),
+      code: newHuntCode.trim(),
+      category: newHuntCategory.trim() || 'Food & Drink',
+      lat: parseFloat(newHuntLat),
+      lon: parseFloat(newHuntLon),
+      radius: parseInt(newHuntRadius) || 50,
+      photo: photoUrl,
+      date: selectedDate + 'T00:00:00Z', // store as UTC
+    });
 
-      alert('Hunt created successfully!');
-      setNewHuntName(''); setNewHuntRiddle(''); setNewHuntCode(''); setNewHuntCategory(''); setNewHuntLat(''); setNewHuntLon(''); setNewHuntRadius('50'); setNewHuntPhoto(null);
-      loadAdminData();
-      setAdminTab('hunts');
-    } catch (err) {
-      alert('Failed to create hunt: ' + (err.message || 'Unknown error'));
-    } finally {
-      setCreatingHunt(false);
-    }
-  };
+    if (error) throw error;
+
+    alert('Hunt created successfully!');
+    setNewHuntName(''); setNewHuntRiddle(''); setNewHuntCode(''); setNewHuntCategory(''); 
+    setNewHuntLat(''); setNewHuntLon(''); setNewHuntRadius('50'); setNewHuntPhoto(null);
+    setNewHuntDate(''); // reset date
+    loadAdminData();
+    setAdminTab('hunts');
+  } catch (err) {
+    console.error(err);
+    alert('Failed to create hunt: ' + (err.message || 'Unknown error'));
+  } finally {
+    setCreatingHunt(false);
+  }
+};
 
   const approveSelfie = async (id) => {
     const { data: selfie } = await supabase.from('selfies').select('user_id, hunt_id').eq('id', id).single();
@@ -388,27 +401,43 @@ export default function App() {
             </div>
           )}
 
-          {/* CREATE HUNT TAB */}
-          {adminTab === 'create' && (
-            <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-3xl mx-auto">
-              <h2 className="text-4xl font-black text-amber-900 mb-10 text-center">Create New Hunt</h2>
-              <div className="space-y-6">
-                <input type="text" placeholder="Business Name *" value={newHuntName} onChange={e => setNewHuntName(e.target.value)} className="w-full p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
-                <textarea placeholder="Riddle / Clue *" value={newHuntRiddle} onChange={e => setNewHuntRiddle(e.target.value)} className="w-full p-5 border-2 border-amber-300 rounded-2xl text-xl h-32 focus:border-amber-600 outline-none" />
-                <input type="text" placeholder="Secret Code (e.g. BREW2025) *" value={newHuntCode} onChange={e => setNewHuntCode(e.target.value)} className="w-full p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
-                <input type="text" placeholder="Category (e.g. Coffee, Bar)" value={newHuntCategory} onChange={e => setNewHuntCategory(e.target.value)} className="w-full p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
-                <div className="grid grid-cols-2 gap-4">
-                  <input type="text" placeholder="Latitude *" value={newHuntLat} onChange={e => setNewHuntLat(e.target.value)} className="p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
-                  <input type="text" placeholder="Longitude *" value={newHuntLon} onChange={e => setNewHuntLon(e.target.value)} className="p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
-                </div>
-                <input type="number" placeholder="Radius in meters (default: 50)" value={newHuntRadius} onChange={e => setNewHuntRadius(e.target.value)} className="w-full p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
-                <input type="file" accept="image/*" onChange={e => setNewHuntPhoto(e.target.files[0])} className="w-full p-5 border-2 border-dashed border-amber-400 rounded-2xl bg-amber-50 text-lg" />
-                <button onClick={createHunt} disabled={creatingHunt} className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white py-6 rounded-2xl font-bold text-2xl shadow-2xl transform hover:scale-105 transition">
-                  {creatingHunt ? 'Creating Hunt...' : 'Create Hunt'}
-                </button>
-              </div>
-            </div>
-          )}
+{/* CREATE HUNT TAB — NOW WITH DATE PICKER */}
+{adminTab === 'create' && (
+  <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-3xl mx-auto">
+    <h2 className="text-4xl font-black text-amber-900 mb-10 text-center">Create New Hunt</h2>
+    <div className="space-y-6">
+      <input type="text" placeholder="Business Name *" value={newHuntName} onChange={e => setNewHuntName(e.target.value)} className="w-full p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
+      <textarea placeholder="Riddle / Clue *" value={newHuntRiddle} onChange={e => setNewHuntRiddle(e.target.value)} className="w-full p-5 border-2 border-amber-300 rounded-2xl text-xl h-32 focus:border-amber-600 outline-none" />
+      <input type="text" placeholder="Secret Code (e.g. BREW2025) *" value={newHuntCode} onChange={e => setNewHuntCode(e.target.value)} className="w-full p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
+      <input type="text" placeholder="Category (e.g. Coffee, Bar)" value={newHuntCategory} onChange={e => setNewHuntCategory(e.target.value)} className="w-full p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
+      
+      <div className="grid grid-cols-2 gap-4">
+        <input type="text" placeholder="Latitude *" value={newHuntLat} onChange={e => setNewHuntLat(e.target.value)} className="p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
+        <input type="text" placeholder="Longitude *" value={newHuntLon} onChange={e => setNewHuntLon(e.target.value)} className="p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <input type="number" placeholder="Radius (meters)" value={newHuntRadius} onChange={e => setNewHuntRadius(e.target.value)} className="p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
+        <input 
+          type="date" 
+          value={newHuntDate} 
+          onChange={e => setNewHuntDate(e.target.value)}
+          className="p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none"
+        />
+      </div>
+
+      <div className="text-center text-sm text-gray-600 -mt-4 mb-4">
+        Date: {newHuntDate ? new Date(newHuntDate).toLocaleDateString() : 'Today (default)'}
+      </div>
+
+      <input type="file" accept="image/*" onChange={e => setNewHuntPhoto(e.target.files[0])} className="w-full p-5 border-2 border-dashed border-amber-400 rounded-2xl bg-amber-50 text-lg" />
+      
+      <button onClick={createHunt} disabled={creatingHunt} className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white py-6 rounded-2xl font-bold text-2xl shadow-2xl transform hover:scale-105 transition">
+        {creatingHunt ? 'Creating Hunt...' : 'Create Hunt'}
+      </button>
+    </div>
+  </div>
+)}
 
           {/* SUBMISSIONS TAB */}
           {adminTab === 'submissions' && submissions.filter(s => !s.approved).length === 0 && (
