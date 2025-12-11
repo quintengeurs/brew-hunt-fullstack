@@ -17,7 +17,6 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
-  const [newHuntDate, setNewHuntDate] = useState(''); // for date picker
 }
 
 export default function App() {
@@ -57,6 +56,7 @@ export default function App() {
   const [newHuntLat, setNewHuntLat] = useState('');
   const [newHuntLon, setNewHuntLon] = useState('');
   const [newHuntRadius, setNewHuntRadius] = useState('50');
+  const [newHuntDate, setNewHuntDate] = useState(''); // NEW: date picker
   const [newHuntPhoto, setNewHuntPhoto] = useState(null);
   const [creatingHunt, setCreatingHunt] = useState(false);
 
@@ -131,7 +131,11 @@ export default function App() {
       setLastActive(lastActiveDate);
       setTier(currentTotal >= 20 ? 'Legend' : currentTotal >= 10 ? 'Pro' : currentTotal >= 5 ? 'Hunter' : 'Newbie');
 
-      const { data: huntsData } = await supabase.from('hunts').select('*').order('date', { ascending: false });
+      const { data: huntsData } = await supabase
+        .from('hunts')
+        .select('*')
+        .order('date', { ascending: false });
+
       setHunts(huntsData || []);
       applyFilter(huntsData || [], completedIds, activeFilter);
       setDataLoaded(true);
@@ -238,59 +242,58 @@ export default function App() {
     setSubmissions(subs || []);
   };
 
-// ─── CREATE NEW HUNT (NOW WITH DATE PICKER) ───────────────────────────
-const createHunt = async () => {
-  if (!newHuntName || !newHuntRiddle || !newHuntCode || !newHuntLat || !newHuntLon) {
-    alert('Please fill in all required fields');
-    return;
-  }
-
-  setCreatingHunt(true);
-  try {
-    let photoUrl = null;
-    if (newHuntPhoto) {
-      const fileExt = newHuntPhoto.name.split('.').pop();
-      const fileName = `hunt_${Date.now()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage
-        .from('hunts')
-        .upload(fileName, newHuntPhoto);
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('hunts')
-        .getPublicUrl(fileName);
-      photoUrl = publicUrl;
+  // ─── CREATE NEW HUNT WITH DATE ─────────────────
+  const createHunt = async () => {
+    if (!newHuntName || !newHuntRiddle || !newHuntCode || !newHuntLat || !newHuntLon) {
+      alert('Please fill in all required fields');
+      return;
     }
 
-    const selectedDate = newHuntDate || new Date().toISOString().split('T')[0]; // default today
+    setCreatingHunt(true);
+    try {
+      let photoUrl = null;
+      if (newHuntPhoto) {
+        const fileExt = newHuntPhoto.name.split('.').pop();
+        const fileName = `hunt_${Date.now()}.${fileExt}`;
+        const { error: uploadError } = await supabase.storage
+          .from('hunts')
+          .upload(fileName, newHuntPhoto);
+        if (uploadError) throw uploadError;
 
-    const { error } = await supabase.from('hunts').insert({
-      business_name: newHuntName.trim(),
-      riddle: newHuntRiddle.trim(),
-      code: newHuntCode.trim(),
-      category: newHuntCategory.trim() || 'Food & Drink',
-      lat: parseFloat(newHuntLat),
-      lon: parseFloat(newHuntLon),
-      radius: parseInt(newHuntRadius) || 50,
-      photo: photoUrl,
-      date: selectedDate + 'T00:00:00Z', // store as UTC
-    });
+        const { data: { publicUrl } } = supabase.storage
+          .from('hunts')
+          .getPublicUrl(fileName);
+        photoUrl = publicUrl;
+      }
 
-    if (error) throw error;
+      const huntDate = newHuntDate ? `${newHuntDate}T00:00:00Z` : new Date().toISOString();
 
-    alert('Hunt created successfully!');
-    setNewHuntName(''); setNewHuntRiddle(''); setNewHuntCode(''); setNewHuntCategory(''); 
-    setNewHuntLat(''); setNewHuntLon(''); setNewHuntRadius('50'); setNewHuntPhoto(null);
-    setNewHuntDate(''); // reset date
-    loadAdminData();
-    setAdminTab('hunts');
-  } catch (err) {
-    console.error(err);
-    alert('Failed to create hunt: ' + (err.message || 'Unknown error'));
-  } finally {
-    setCreatingHunt(false);
-  }
-};
+      const { error } = await supabase.from('hunts').insert({
+        business_name: newHuntName.trim(),
+        riddle: newHuntRiddle.trim(),
+        code: newHuntCode.trim(),
+        category: newHuntCategory.trim() || 'Food & Drink',
+        lat: parseFloat(newHuntLat),
+        lon: parseFloat(newHuntLon),
+        radius: parseInt(newHuntRadius) || 50,
+        photo: photoUrl,
+        date: huntDate,
+      });
+
+      if (error) throw error;
+
+      alert('Hunt created successfully!');
+      setNewHuntName(''); setNewHuntRiddle(''); setNewHuntCode(''); setNewHuntCategory('');
+      setNewHuntLat(''); setNewHuntLon(''); setNewHuntRadius('50'); setNewHuntDate(''); setNewHuntPhoto(null);
+      loadAdminData();
+      setAdminTab('hunts');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to create hunt: ' + (err.message || 'Unknown error'));
+    } finally {
+      setCreatingHunt(false);
+    }
+  };
 
   const approveSelfie = async (id) => {
     const { data: selfie } = await supabase.from('selfies').select('user_id, hunt_id').eq('id', id).single();
@@ -345,7 +348,7 @@ const createHunt = async () => {
       <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50">
         <div className="bg-white shadow-2xl p-6 sticky top-0 z-50 flex justify-between items-center border-b-8 border-amber-600">
           <h1 className="text-5xl font-black text-amber-900 flex items-center gap-4">
-            <Shield className="w-14 h-14" /> Admin Panel
+            Admin Panel
           </h1>
           <div className="flex gap-4 items-center">
             <button onClick={() => setShowAdmin(false)} className="px-8 py-4 bg-gray-800 hover:bg-gray-900 text-white rounded-full font-bold text-lg">
@@ -391,8 +394,7 @@ const createHunt = async () => {
                       <div className="text-sm space-y-1">
                         <p><strong>Category:</strong> {hunt.category || '—'}</p>
                         <p><strong>Code:</strong> <span className="font-mono bg-green-100 px-2 py-1 rounded">{hunt.code}</span></p>
-                        <p><strong>Location:</strong> {hunt.lat.toFixed(6)}, {hunt.lon.toFixed(6)}</p>
-                        <p><strong>Radius:</strong> {hunt.radius}m</p>
+                        <p><strong>Date:</strong> {new Date(hunt.date).toLocaleDateString()}</p>
                       </div>
                     </div>
                   </div>
@@ -401,43 +403,38 @@ const createHunt = async () => {
             </div>
           )}
 
-{/* CREATE HUNT TAB — NOW WITH DATE PICKER */}
-{adminTab === 'create' && (
-  <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-3xl mx-auto">
-    <h2 className="text-4xl font-black text-amber-900 mb-10 text-center">Create New Hunt</h2>
-    <div className="space-y-6">
-      <input type="text" placeholder="Business Name *" value={newHuntName} onChange={e => setNewHuntName(e.target.value)} className="w-full p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
-      <textarea placeholder="Riddle / Clue *" value={newHuntRiddle} onChange={e => setNewHuntRiddle(e.target.value)} className="w-full p-5 border-2 border-amber-300 rounded-2xl text-xl h-32 focus:border-amber-600 outline-none" />
-      <input type="text" placeholder="Secret Code (e.g. BREW2025) *" value={newHuntCode} onChange={e => setNewHuntCode(e.target.value)} className="w-full p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
-      <input type="text" placeholder="Category (e.g. Coffee, Bar)" value={newHuntCategory} onChange={e => setNewHuntCategory(e.target.value)} className="w-full p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
-      
-      <div className="grid grid-cols-2 gap-4">
-        <input type="text" placeholder="Latitude *" value={newHuntLat} onChange={e => setNewHuntLat(e.target.value)} className="p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
-        <input type="text" placeholder="Longitude *" value={newHuntLon} onChange={e => setNewHuntLon(e.target.value)} className="p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
-      </div>
+          {/* CREATE HUNT TAB WITH DATE */}
+          {adminTab === 'create' && (
+            <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-3xl mx-auto">
+              <h2 className="text-4xl font-black text-amber-900 mb-10 text-center">Create New Hunt</h2>
+              <div className="space-y-6">
+                <input type="text" placeholder="Business Name *" value={newHuntName} onChange={e => setNewHuntName(e.target.value)} className="w-full p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
+                <textarea placeholder="Riddle / Clue *" value={newHuntRiddle} onChange={e => setNewHuntRiddle(e.target.value)} className="w-full p-5 border-2 border-amber-300 rounded-2xl text-xl h-32 focus:border-amber-600 outline-none" />
+                <input type="text" placeholder="Secret Code (e.g. BREW2025) *" value={newHuntCode} onChange={e => setNewHuntCode(e.target.value)} className="w-full p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
+                <input type="text" placeholder="Category (e.g. Coffee, Bar)" value={newHuntCategory} onChange={e => setNewHuntCategory(e.target.value)} className="w-full p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <input type="text" placeholder="Latitude *" value={newHuntLat} onChange={e => setNewHuntLat(e.target.value)} className="p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
+                  <input type="text" placeholder="Longitude *" value={newHuntLon} onChange={e => setNewHuntLon(e.target.value)} className="p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
+                </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <input type="number" placeholder="Radius (meters)" value={newHuntRadius} onChange={e => setNewHuntRadius(e.target.value)} className="p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
-        <input 
-          type="date" 
-          value={newHuntDate} 
-          onChange={e => setNewHuntDate(e.target.value)}
-          className="p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none"
-        />
-      </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <input type="number" placeholder="Radius (meters)" value={newHuntRadius} onChange={e => setNewHuntRadius(e.target.value)} className="p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
+                  <input type="date" value={newHuntDate} onChange={e => setNewHuntDate(e.target.value)} className="p-5 border-2 border-amber-300 rounded-2xl text-xl focus:border-amber-600 outline-none" />
+                </div>
 
-      <div className="text-center text-sm text-gray-600 -mt-4 mb-4">
-        Date: {newHuntDate ? new Date(newHuntDate).toLocaleDateString() : 'Today (default)'}
-      </div>
+                <div className="text-center text-sm text-gray-600 -mt-4 mb-4">
+                  Active from: {newHuntDate ? new Date(newHuntDate).toLocaleDateString() : 'Today'}
+                </div>
 
-      <input type="file" accept="image/*" onChange={e => setNewHuntPhoto(e.target.files[0])} className="w-full p-5 border-2 border-dashed border-amber-400 rounded-2xl bg-amber-50 text-lg" />
-      
-      <button onClick={createHunt} disabled={creatingHunt} className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white py-6 rounded-2xl font-bold text-2xl shadow-2xl transform hover:scale-105 transition">
-        {creatingHunt ? 'Creating Hunt...' : 'Create Hunt'}
-      </button>
-    </div>
-  </div>
-)}
+                <input type="file" accept="image/*" onChange={e => setNewHuntPhoto(e.target.files?.[0] || null)} className="w-full p-5 border-2 border-dashed border-amber-400 rounded-2xl bg-amber-50 text-lg" />
+                
+                <button onClick={createHunt} disabled={creatingHunt} className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white py-6 rounded-2xl font-bold text-2xl shadow-2xl transform hover:scale-105 transition">
+                  {creatingHunt ? 'Creating Hunt...' : 'Create Hunt'}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* SUBMISSIONS TAB */}
           {adminTab === 'submissions' && submissions.filter(s => !s.approved).length === 0 && (
@@ -453,10 +450,10 @@ const createHunt = async () => {
                 <p className="text-gray-600">Submitted: {new Date(sub.created_at).toLocaleString()}</p>
                 <div className="flex gap-6 mt-10">
                   <button onClick={() => approveSelfie(sub.id)} className="flex-1 bg-green-600 hover:bg-green-700 text-white py-6 rounded-2xl font-bold text-2xl flex items-center justify-center gap-4 shadow-xl">
-                    <Check size={36} /> Approve
+                    Approve
                   </button>
                   <button onClick={() => rejectSelfie(sub.id)} className="flex-1 bg-red-600 hover:bg-red-700 text-white py-6 rounded-2xl font-bold text-2xl flex items-center justify-center gap-4 shadow-xl">
-                    <X size={36} /> Reject
+                    Reject
                   </button>
                 </div>
               </div>
@@ -467,7 +464,7 @@ const createHunt = async () => {
     );
   }
 
-  // ─── LOGIN & LOADING ───────────────────────────
+  // ─── LOGIN & MAIN APP (UNCHANGED) ───────────────
   if (!session) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50 flex items-center justify-center px-6">
@@ -527,7 +524,7 @@ const createHunt = async () => {
         </div>
       </div>
 
-      {/* STATS CARD */}
+      {/* STATS + HUNT CARDS */}
       <div className="max-w-md mx-auto p-6">
         <div className="bg-white/90 backdrop-blur-lg rounded-3xl shadow-2xl p-10 text-center mb-8 border-4 border-amber-200">
           <div className="flex justify-between items-center">
@@ -548,16 +545,14 @@ const createHunt = async () => {
           </div>
         </div>
 
-        {/* HUNT CARDS — FINAL PERFECT LAYOUT */}
+        {/* HUNT CARDS — FINAL LAYOUT */}
         <div className="space-y-8">
           {filteredHunts.map(hunt => {
             const isCompleted = completed.includes(hunt.id);
             return (
               <div
                 key={hunt.id}
-                className={`bg-white rounded-3xl shadow-2xl overflow-hidden transform transition hover:scale-105 relative ${
-                  isCompleted ? 'opacity-80' : ''
-                }`}
+                className={`bg-white rounded-3xl shadow-2xl overflow-hidden transform transition hover:scale-105 relative ${isCompleted ? 'opacity-80' : ''}`}
               >
                 {/* COMPLETED RIBBON */}
                 {isCompleted && (
@@ -580,7 +575,7 @@ const createHunt = async () => {
                   </span>
                 </div>
 
-                {/* CONTENT + CENTERED BUTTON */}
+                {/* TEXT + CENTERED BUTTON */}
                 <div className="p-8 pb-12 text-center">
                   <h3 className="text-3xl font-black text-amber-900 mb-4">{hunt.business_name}</h3>
                   <p className="text-gray-600 text-lg italic mb-10 leading-relaxed">"{hunt.riddle}"</p>
@@ -604,7 +599,7 @@ const createHunt = async () => {
         </div>
       </div>
 
-      {/* COMPLETED HUNTS MODAL */}
+      {/* COMPLETED MODAL */}
       {showCompletedModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-6" onClick={() => setShowCompletedModal(false)}>
           <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-screen overflow-y-auto p-10" onClick={e => e.stopPropagation()}>
@@ -641,7 +636,7 @@ const createHunt = async () => {
             <h2 className="text-4xl font-black text-amber-900 mb-6">Submit Proof</h2>
             <p className="text-xl mb-8">Take a selfie at:</p>
             <p className="text-2xl font-bold text-amber-700 mb-10">{currentHunt.business_name}</p>
-            <input type="file" accept="image/*" capture="camera" onChange={e => setSelfieFile(e.target.files[0])} className="mb-8" />
+            <input type="file" accept="image/*" capture="camera" onChange={e => setSelfieFile(e.target.files?.[0] || null)} className="mb-8" />
             <div className="flex gap-6">
               <button onClick={() => { setShowModal(false); setSelfieFile(null); }} className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-5 rounded-2xl font-bold text-xl">
                 Cancel
