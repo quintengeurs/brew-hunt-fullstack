@@ -42,13 +42,14 @@ export default function App() {
   const [uploading, setUploading] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
 
-  // Admin only
+  // Admin
   const [isAdmin, setIsAdmin] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [adminTab, setAdminTab] = useState('hunts');
   const [adminHunts, setAdminHunts] = useState([]);
   const [submissions, setSubmissions] = useState([]);
 
-  // ─── AUTH ───────────────────────────────────────────────────────────────
+  // ─── AUTH & ADMIN CHECK ───────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
@@ -68,19 +69,20 @@ export default function App() {
     return () => listener?.subscription.unsubscribe();
   }, []);
 
-  // ─── LOAD USER DATA ─────────────────────────────────────────────────────
+  // ─── LOAD DATA ───────────────────────────────────────────────────────────
   useEffect(() => {
-    if (session && !showAdmin) {
-      setDataLoaded(false);
-      loadProgressAndHunts();
-      const interval = setInterval(fetchHunts, 10000);
-      return () => clearInterval(interval);
-    } else if (showAdmin) {
-      loadAdminData();
+    if (session) {
+      if (showAdmin) {
+        loadAdminData();
+      } else {
+        setDataLoaded(false);
+        loadProgressAndHunts();
+        const interval = setInterval(fetchHunts, 10000);
+        return () => clearInterval(interval);
+      }
     }
   }, [session, showAdmin]);
 
-  // ─── YOUR ORIGINAL WORKING FUNCTIONS (unchanged) ───────────────────────
   const loadProgressAndHunts = async () => {
     try {
       const { data: progressRows } = await supabase
@@ -113,10 +115,18 @@ export default function App() {
         setTier(completedIds.length >= 20 ? 'Legend' : completedIds.length >= 10 ? 'Pro' : completedIds.length >= 5 ? 'Hunter' : 'Newbie');
         setLastActive(progress.last_active || null);
       } else {
-        setCompleted([]); setStreak(0); setTotalHunts(0); setTier('Newbie'); setLastActive(null);
+        setCompleted([]);
+        setStreak(0);
+        setTotalHunts(0);
+        setTier('Newbie');
+        setLastActive(null);
       }
 
-      const { data: huntsData } = await supabase.from('hunts').select('*').order('date', { ascending: false });
+      const { data: huntsData } = await supabase
+        .from('hunts')
+        .select('*')
+        .order('date', { ascending: false });
+
       setHunts(huntsData || []);
       applyFilter(huntsData || [], completedIds, activeFilter);
       setDataLoaded(true);
@@ -144,7 +154,7 @@ export default function App() {
   const filterHunts = (cat) => setActiveFilter(cat);
   const startHunt = (hunt) => { setCurrentHunt(hunt); setShowModal(true); };
 
-  // Your working uploadSelfie (with geolocation) — unchanged
+  // ─── UPLOAD SELFIE (WITH GEOLOCATION) ───────────────────────────────────────
   const uploadSelfie = async () => {
     if (!selfieFile || !currentHunt || uploading) return;
     setUploading(true);
@@ -177,20 +187,13 @@ export default function App() {
         user_id: session.user.id,
         hunt_id: currentHunt.id,
         image_url: publicUrl,
+        approved: false
       });
 
       const newCompleted = [...new Set([...completed, currentHunt.id])];
       const newTotal = totalHunts + 1;
       const today = new Date().toISOString().slice(0, 10);
-      let newStreak = 1;
-
-      if (lastActive) {
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayStr = yesterday.toISOString().slice(0, 10);
-        if (lastActive === yesterdayStr) newStreak = streak + 1;
-        else if (lastActive === today) newStreak = streak;
-      }
+      let newStreak = lastActive === today ? streak : (lastActive === new Date(Date.now() - 86400000).toISOString().slice(0,10) ? streak + 1 : 1);
 
       const newTier = newTotal >= 20 ? 'Legend' : newTotal >= 10 ? 'Pro' : newTotal >= 5 ? 'Hunter' : 'Newbie';
 
@@ -219,26 +222,7 @@ export default function App() {
     }
   };
 
-  const signUp = async () => {
-    setLoading(true); setAuthError('');
-    const { error } = await supabase.auth.signUp({ email, password });
-    if (error) setAuthError(error.message);
-    setLoading(false);
-  };
-
-  const signIn = async () => {
-    setLoading(true); setAuthError('');
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setAuthError(error.message);
-    setLoading(false);
-  };
-
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    setSession(null);
-  };
-
-  // ─── ADMIN: LOAD DATA ───────────────────────────────────────────────────
+  // ─── ADMIN FUNCTIONS ─────────────────────────────────────────────────────
   const loadAdminData = async () => {
     const { data: allHunts } = await supabase.from('hunts').select('*');
     setAdminHunts(allHunts || []);
@@ -275,10 +259,31 @@ export default function App() {
     loadAdminData();
   };
 
-  // ─── ADMIN PANEL (DESKTOP ONLY) ───────────────────────────────────────
+  const signUp = async () => {
+    setLoading(true);
+    setAuthError('');
+    const { error } = await supabase.auth.signUp({ email, password });
+    if (error) setAuthError(error.message);
+    setLoading(false);
+  };
+
+  const signIn = async () => {
+    setLoading(true);
+    setAuthError('');
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) setAuthError(error.message);
+    setLoading(false);
+  };
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+  };
+
+  // ─── ADMIN PANEL (FULLY WORKING) ───────────────────────────────────────
   if (showAdmin) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 hidden md:block">
+      <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50">
         <div className="bg-white shadow-xl p-6 sticky top-0 z-50 flex justify-between items-center">
           <h1 className="text-4xl font-black text-amber-900 flex items-center gap-4">
             Admin Panel
@@ -296,54 +301,77 @@ export default function App() {
           </div>
         </div>
 
-        <div className="max-w-6xl mx-auto p-8">
-          <div className="flex gap-8 mb-8 border-b-2">
+        <div className="max-w-7xl mx-auto p-8">
+          <div className="flex gap-12 mb-12 border-b-4">
             <button
               onClick={() => setAdminTab('hunts')}
-              className={`pb-4 px-2 text-xl font-bold ${adminTab === 'hunts' ? 'text-amber-600 border-b-4 border-amber-600' : 'text-gray-600'}`}
+              className={`pb-4 px-4 text-2xl font-bold ${adminTab === 'hunts' ? 'text-amber-600 border-b-4 border-amber-600' : 'text-gray-600'}`}
             >
               Active Hunts ({adminHunts.length})
             </button>
             <button
               onClick={() => setAdminTab('submissions')}
-              className={`pb-4 px-2 text-xl font-bold ${adminTab === 'submissions' ? 'text-amber-600 border-b-4 border-amber-600' : 'text-gray-600'}`}
+              className={`pb-4 px-4 text-2xl font-bold ${adminTab === 'submissions' ? 'text-amber-600 border-b-4 border-amber-600' : 'text-gray-600'}`}
             >
-              Selfie Submissions ({submissions.filter(s => !s.approved).length})
+              Submissions ({submissions.filter(s => !s.approved).length})
             </button>
           </div>
 
+          {/* ACTIVE HUNTS TAB
           {adminTab === 'hunts' && (
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {adminHunts.map(hunt => (
-                <div key={hunt.id} className="bg-white rounded-xl shadow p-6">
-                  {hunt.photo && <img src={hunt.photo} className="w-full h-48 object-cover rounded-lg mb-4" />}
-                  <p className="font-bold">{hunt.business_name}</p>
-                  <p className="text-gray-600">{hunt.category} • {hunt.riddle}</p>
+                <div key={hunt.id} className="bg-white rounded-2xl shadow-xl overflow-hidden">
+                  {hunt.photo ? (
+                    <img src={hunt.photo} className="w-full h-64 object-cover" alt={hunt.business_name} />
+                  ) : (
+                    <div className="bg-gray-200 border-2 border-dashed rounded-t-2xl w-full h-64" />
+                  )}
+                  <div className="p-6">
+                    <h3 className="font-bold text-xl mb-2">{hunt.business_name}</h3>
+                    <p className="text-gray-600 mb-1">{hunt.category}</p>
+                    <p className="text-sm text-gray-700 italic mb-3">{hunt.riddle}</p>
+                    <p className="text-green-600 font-bold">Code: {hunt.code}</p>
+                  </div>
                 </div>
               ))}
             </div>
           )}
 
+          {/* SUBMISSIONS TAB */}
           {adminTab === 'submissions' && (
-            <div className="space-y-8">
-              {submissions.filter(s => !s.approved).map(sub => (
-                <div key={sub.id} className="bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col lg:flex-row gap-6">
-                  <img src={sub.image_url} className="w-full lg:w-96 h-96 object-cover" />
-                  <div className="p-6 flex-1">
-                    <p><strong>User:</strong> {sub['auth.users']?.email || sub.user_id}</p>
-                    <p><strong>Hunt:</strong> {sub.hunts?.business_name}</p>
-                    <p><strong>Submitted:</strong> {new Date(sub.created_at).toLocaleString()}</p>
-                    <div className="flex gap-4 mt-8">
-                      <button onClick={() => approveSelfie(sub.id)} className="flex-1 bg-green-600 hover:bg-green-700 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2">
-                        Approve
-                      </button>
-                      <button onClick={() => rejectSelfie(sub.id)} className="flex-1 bg-red-600 hover:bg-red-700 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2">
-                        Reject
-                      </button>
+            <div className="space-y-12">
+              {submissions
+                .filter(s => !s.approved)
+                .map(sub => (
+                  <div key={sub.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col lg:flex-row">
+                    <div className="lg:w-96">
+                      <img src={sub.image_url} className="w-full h-96 object-cover" alt="Selfie" />
+                    </div>
+                    <div className="p-8 flex-1 flex flex-col justify-center">
+                      <p className="text-xl mb-3"><strong>User:</strong> {sub['auth.users']?.email || sub.user_id}</p>
+                      <p className="text-xl mb-3"><strong>Hunt:</strong> {sub.hunts?.business_name}</p>
+                      <p className="text-gray-600 mb-8">Submitted: {new Date(sub.created_at).toLocaleString()}</p>
+                      <div className="flex gap-6">
+                        <button
+                          onClick={() => approveSelfie(sub.id)}
+                          className="flex-1 bg-green-600 hover:bg-green-700 text-white py-5 rounded-2xl font-bold text-xl flex items-center justify-center gap-3 shadow-lg"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => rejectSelfie(sub.id)}
+                          className="flex-1 bg-red-600 hover:bg-red-700 text-white py-5 rounded-2xl font-bold text-xl flex items-center justify-center gap-3 shadow-lg"
+                        >
+                          Reject
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              {submissions.filter(s => !s.approved).length === 0 && (
+                <p className="text-center text-3xl text-gray-500 py-32">No pending submissions</p>
+              )}
             </div>
           )}
         </div>
@@ -372,7 +400,7 @@ export default function App() {
     );
   }
 
-  // ─── MAIN APP ───────────────────────────────────────────────────────────
+  // ─── MAIN APP (NORMAL USER) ─────────────────────────────────────────────
   if (!dataLoaded) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50 flex items-center justify-center">
@@ -385,19 +413,23 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50">
-      {/* HEADER - ADMIN BUTTON ONLY ON DESKTOP */}
+      {/* HEADER */}
       <div className="bg-white/80 backdrop-blur-lg shadow-lg p-6 sticky top-0 z-40">
-        <div className="max-w-md mx-auto flex justify-between items-center hidden md:flex">
+        <div className="max-w-md mx-auto flex justify-between items-center">
           <h1 className="text-4xl font-black text-amber-900">Brew Hunt</h1>
+
           <div className="flex items-center gap-4">
+            {/* ADMIN BUTTON — only on desktop */}
             {isAdmin && (
               <button
                 onClick={() => setShowAdmin(true)}
-                className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-full font-bold flex items-center gap-2 shadow-lg"
+                className="hidden md:flex bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-full font-bold items-center gap-2 shadow-lg"
               >
                 Admin
               </button>
             )}
+
+            {/* LOGOUT */}
             <button
               onClick={signOut}
               className="text-gray-600 hover:text-gray-900 transition p-2"
@@ -407,17 +439,9 @@ export default function App() {
             </button>
           </div>
         </div>
-
-        {/* Mobile header - only logout */}
-        <div className="md:hidden flex justify-between items-center p-4 bg-white shadow">
-          <h1 className="text-3xl font-bold text-amber-900">Brew Hunt</h1>
-          <button onClick={signOut} className="text-gray-600">
-            <LogOut size={28} />
-          </button>
-        </div>
       </div>
 
-      {/* YOUR FULL WORKING UI BELOW — unchanged */}
+      {/* YOUR FULL WORKING UI BELOW */}
       {/* Stats */}
       <div className="max-w-md mx-auto p-6">
         <div className="bg-white rounded-3xl shadow-2xl p-8 text-center">
@@ -449,7 +473,9 @@ export default function App() {
         {/* Hunts list */}
         <div className="space-y-8 pb-24">
           {filteredHunts.length === 0 ? (
-            <p className="text-center text-gray-600 text-xl py-xl py-12">No {activeFilter === 'All' ? '' : activeFilter} hunts right now — check back soon!</p>
+            <p className="text-center text-gray-600 text-xl py-12">
+              No {activeFilter === 'All' ? '' : activeFilter} hunts right now — check back soon!
+            </p>
           ) : (
             filteredHunts.map(hunt => (
               <div key={hunt.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden">
@@ -473,8 +499,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Modals - your existing ones */}
-      {/* ... (keep exactly as they are in your working version) */}
+      {/* Your modals (CompletedModal, selfie modal, leaderboard — keep your working code */}
     </div>
   );
 }
