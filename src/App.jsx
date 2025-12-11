@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { LogOut, Shield, Check, X } from 'lucide-react';
+import { LogOut, Shield, Check, X, MapPin, Camera, Trophy, Flame } from 'lucide-react';
 
 const supabaseUrl = 'https://eeboxlitezqgjyrnssgx.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlYm94bGl0ZXpxZ2p5cm5zc2d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2NjcyNTksImV4cCI6MjA4MDI0MzI1OX0.8VlGLHjEv_0aGWOjiDuLLziOCnUqciIAEWayMUGsXT8';
@@ -36,7 +36,6 @@ export default function App() {
   const [lastActive, setLastActive] = useState(null);
   const [currentHunt, setCurrentHunt] = useState(null);
   const [showModal, setShowModal] = useState(false);
-  const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showCompletedModal, setShowCompletedModal] = useState(false);
   const [selfieFile, setSelfieFile] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -49,7 +48,7 @@ export default function App() {
   const [adminHunts, setAdminHunts] = useState([]);
   const [submissions, setSubmissions] = useState([]);
 
-  // ─── AUTH + ADMIN DETECTION ─────────────────────
+  // ─── AUTH & ADMIN DETECTION ─────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
@@ -71,22 +70,20 @@ export default function App() {
     return () => listener?.subscription.unsubscribe();
   }, []);
 
-  // ─── AUTO-REFRESH HUNTS WHEN NOT IN ADMIN ───────
+  // ─── AUTO REFRESH HUNTS ─────────────────────────
   useEffect(() => {
     if (session && !showAdmin) {
       const interval = setInterval(() => {
-        supabase.from('hunts').select('*').order('date', { ascending: false }).then(({ data }) => {
-          if (data) setHunts(data);
-        });
+        supabase.from('hunts').select('*').order('date', { ascending: false })
+          .then(({ data }) => { if (data) setHunts(data); });
       }, 10000);
       return () => clearInterval(interval);
     }
   }, [session, showAdmin]);
 
-  // ─── LOAD DATA (USER OR ADMIN) ──────────────────
+  // ─── LOAD USER DATA OR ADMIN DATA ───────────────
   useEffect(() => {
     if (!session) return;
-
     if (showAdmin) {
       loadAdminData();
     } else {
@@ -95,7 +92,6 @@ export default function App() {
     }
   }, [session, showAdmin]);
 
-  // ─── USER DATA + HUNTS ───────────────────────────
   const loadProgressAndHunts = async () => {
     try {
       const { data: progressRows } = await supabase
@@ -109,7 +105,7 @@ export default function App() {
       let currentTotal = 0;
       let lastActiveDate = null;
 
-      if (progressRows?.length) {
+      if (progressRows?.length > 0) {
         const progress = progressRows[0];
         completedIds = Array.isArray(progress.completed_hunt_ids) ? progress.completed_hunt_ids : [];
         currentStreak = progress.streak || 0;
@@ -149,7 +145,7 @@ export default function App() {
     }
   }, [activeFilter, dataLoaded, completed, hunts]);
 
-  // ─── SELFIE UPLOAD + GEOLOCATION ────────────────
+  // ─── SELFIE UPLOAD WITH GEOLOCATION ─────────────
   const uploadSelfie = async () => {
     if (!selfieFile || !currentHunt || uploading) return;
     setUploading(true);
@@ -167,7 +163,7 @@ export default function App() {
       );
 
       if (distance > currentHunt.radius) {
-        alert('You are not close enough to the spot!');
+        alert('Too far! You must be at the location to submit.');
         setUploading(false);
         return;
       }
@@ -186,15 +182,9 @@ export default function App() {
         approved: false,
       });
 
-      // Update progress
       const today = new Date().toISOString().slice(0, 10);
       const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-
-      const newStreak = lastActive === today
-        ? streak
-        : lastActive === yesterday
-          ? streak + 1
-          : 1;
+      const newStreak = lastActive === today ? streak : lastActive === yesterday ? streak + 1 : 1;
 
       const newCompleted = [...new Set([...completed, currentHunt.id])];
       const newTotal = newCompleted.length;
@@ -218,15 +208,16 @@ export default function App() {
       setShowModal(false);
       setSelfieFile(null);
       setCurrentHunt(null);
+      alert('Selfie submitted! Waiting for admin approval.');
     } catch (error) {
       console.error(error);
-      alert(`Upload failed: ${error.message || 'Unknown error'}`);
+      alert(`Upload failed: ${error.message || 'Try again'}`);
     } finally {
       setUploading(false);
     }
   };
 
-  // ─── ADMIN DATA ─────────────────────────────────
+  // ─── ADMIN FUNCTIONS ───────────────────────────
   const loadAdminData = async () => {
     const { data: allHunts } = await supabase.from('hunts').select('*');
     setAdminHunts(allHunts || []);
@@ -241,11 +232,9 @@ export default function App() {
 
   const approveSelfie = async (id) => {
     const { data: selfie } = await supabase.from('selfies').select('user_id, hunt_id').eq('id', id).single();
-
     await supabase.from('selfies').update({ approved: true }).eq('id', id);
 
     const { data: progress } = await supabase.from('user_progress').select('*').eq('user_id', selfie.user_id).single();
-
     const newCompleted = [...new Set([...(progress?.completed_hunt_ids || []), selfie.hunt_id])];
     const newTotal = newCompleted.length;
     const newTier = newTotal >= 20 ? 'Legend' : newTotal >= 10 ? 'Pro' : newTotal >= 5 ? 'Hunter' : 'Newbie';
@@ -267,7 +256,6 @@ export default function App() {
     loadAdminData();
   };
 
-  // ─── AUTH FUNCTIONS ─────────────────────────────
   const signUp = async () => {
     setLoading(true);
     setAuthError('');
@@ -289,112 +277,75 @@ export default function App() {
     setSession(null);
   };
 
-  // ─── RENDER ADMIN PANEL ─────────────────────────
+  // ─── ADMIN PANEL ───────────────────────────────
   if (showAdmin) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50">
-        <div className="bg-white shadow-xl p-6 sticky top-0 z-50 flex justify-between items-center">
-          <h1 className="text-4xl font-black text-amber-900 flex items-center gap-4">
-            <Shield className="inline" /> Admin Panel
+        <div className="bg-white shadow-2xl p-6 sticky top-0 z-50 flex justify-between items-center border-b-8 border-amber-600">
+          <h1 className="text-5xl font-black text-amber-900 flex items-center gap-4">
+            <Shield className="w-14 h-14" /> Admin Panel
           </h1>
-          <div className="flex gap-4">
-            <button onClick={() => setShowAdmin(false)} className="px-6 py-3 bg-gray-200 hover:bg-gray-300 rounded-full font-bold">
+          <div className="flex gap-4 items-center">
+            <button onClick={() => setShowAdmin(false)} className="px-8 py-4 bg-gray-800 hover:bg-gray-900 text-white rounded-full font-bold text-lg">
               Back to App
             </button>
-            <button onClick={signOut} className="text-gray-600 hover:text-gray-900">
-              <LogOut size={28} />
+            <button onClick={signOut} className="p-3 bg-red-100 hover:bg-red-200 rounded-full">
+              <LogOut size={32} className="text-red-700" />
             </button>
           </div>
         </div>
 
         <div className="max-w-7xl mx-auto p-8">
-          <div className="flex gap-12 mb-12 border-b-4">
-            <button
-              onClick={() => setAdminTab('hunts')}
-              className={`pb-4 px-4 text-2xl font-bold ${adminTab === 'hunts' ? 'text-amber-600 border-b-4 border-amber-600' : 'text-gray-600'}`}
-            >
-              Active Hunts ({adminHunts.length})
+          <div className="flex gap-12 mb-12 border-b-4 border-amber-200">
+            <button onClick={() => setAdminTab('hunts')} className={`pb-4 px-6 text-2xl font-bold ${adminTab === 'hunts' ? 'text-amber-600 border-b-4 border-amber-600' : 'text-gray-600'}`}>
+              All Hunts ({adminHunts.length})
             </button>
-            <button
-              onClick={() => setAdminTab('submissions')}
-              className={`pb-4 px-4 text-2xl font-bold ${adminTab === 'submissions' ? 'text-amber-600 border-b-4 border-amber-600' : 'text-gray-600'}`}
-            >
-              Submissions ({submissions.filter(s => !s.approved).length})
+            <button onClick={() => setAdminTab('submissions')} className={`pb-4 px-6 text-2xl font-bold ${adminTab === 'submissions' ? 'text-amber-600 border-b-4 border-amber-600' : 'text-gray-600'}`}>
+              Pending ({submissions.filter(s => !s.approved).length})
             </button>
           </div>
 
-          {adminTab === 'hunts' && (
-            <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {adminHunts.map(hunt => (
-                <div key={hunt.id} className="bg-white rounded-2xl shadow-xl overflow-hidden">
-                  {hunt.photo ? (
-                    <img src={hunt.photo} className="w-full h-64 object-cover" alt={hunt.business_name} />
-                  ) : (
-                    <div className="bg-gray-200 border-2 border-dashed rounded-t-2xl w-full h-64" />
-                  )}
-                  <div className="p-6">
-                    <h3 className="font-bold text-xl mb-2">{hunt.business_name}</h3>
-                    <p className="text-gray-600 mb-1">{hunt.category}</p>
-                    <p className="text-sm text-gray-700 italic mb-3">{hunt.riddle}</p>
-                    <p className="text-green-600 font-bold">Code: {hunt.code}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+          {adminTab === 'submissions' && submissions.filter(s => !s.approved).length === 0 && (
+            <p className="text-center text-4xl text-gray-500 py-32 font-light">No pending submissions</p>
           )}
 
-          {adminTab === 'submissions' && (
-            <div className="space-y-12">
-              {submissions.filter(s => !s.approved).map(sub => (
-                <div key={sub.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col lg:flex-row gap-8">
-                  <div className="lg:w-96">
-                    <img src={sub.image_url} className="w-full h-96 object-cover" alt="Selfie" />
-                  </div>
-                  <div className="p-8 flex-1 flex flex-col justify-center">
-                    <p className="text-xl mb-3"><strong>User:</strong> {sub.profiles?.email || sub.user_id}</p>
-                    <p className="text-xl mb-3"><strong>Hunt:</strong> {sub.hunts?.business_name}</p>
-                    <p className="text-gray-600 mb-8">Submitted: {new Date(sub.created_at).toLocaleString()}</p>
-                    <div className="flex gap-6">
-                      <button
-                        onClick={() => approveSelfie(sub.id)}
-                        className="flex-1 bg-green-600 hover:bg-green-700 text-white py-5 rounded-2xl font-bold text-xl flex items-center justify-center gap-3 shadow-lg"
-                      >
-                        <Check size={28} /> Approve
-                      </button>
-                      <button
-                        onClick={() => rejectSelfie(sub.id)}
-                        className="flex-1 bg-red-600 hover:bg-red-700 text-white py-5 rounded-2xl font-bold text-xl flex items-center justify-center gap-3 shadow-lg"
-                      >
-                        <X size={28} /> Reject
-                      </button>
-                    </div>
-                  </div>
+          {adminTab === 'submissions' && submissions.filter(s => !s.approved).map(sub => (
+            <div key={sub.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col lg:flex-row mb-12">
+              <img src={sub.image_url} alt="Selfie" className="w-full lg:w-96 h-96 object-cover" />
+              <div className="p-8 lg:p-12 flex-1 flex flex-col justify-center">
+                <p className="text-2xl font-bold mb-2">User: {sub.profiles?.email || sub.user_id}</p>
+                <p className="text-xl text-gray-700 mb-2">Hunt: {sub.hunts?.business_name}</p>
+                <p className="text-gray-600">Submitted: {new Date(sub.created_at).toLocaleString()}</p>
+                <div className="flex gap-6 mt-10">
+                  <button onClick={() => approveSelfie(sub.id)} className="flex-1 bg-green-600 hover:bg-green-700 text-white py-6 rounded-2xl font-bold text-2xl flex items-center justify-center gap-4 shadow-xl">
+                    <Check size={36} /> Approve
+                  </button>
+                  <button onClick={() => rejectSelfie(sub.id)} className="flex-1 bg-red-600 hover:bg-red-700 text-white py-6 rounded-2xl font-bold text-2xl flex items-center justify-center gap-4 shadow-xl">
+                    <X size={36} /> Reject
+                  </button>
                 </div>
-              ))}
-              {submissions.filter(s => !s.approved).length === 0 && (
-                <p className="text-center text-3xl text-gray-500 py-32">No pending submissions</p>
-              )}
+              </div>
             </div>
-          )}
+          ))}
         </div>
       </div>
     );
   }
 
-  // ─── LOGIN SCREEN ───────────────────────────────
+  // ─── LOGIN SCREEN ──────────────────────────────
   if (!session) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50 flex items-center justify-center px-6">
         <div className="bg-white rounded-3xl shadow-2xl p-12 max-w-md w-full text-center">
-          <h1 className="text-6xl font-black text-amber-900 mb-4">Brew Hunt</h1>
-          <p className="text-xl text-amber-800 mb-12">Real-world treasure hunts in Hackney</p>
-          {authError && <p className="text-red-600 font-bold mb-6">{authError}</p>}
-          <input type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 mb-4 border-2 border-amber-200 rounded-2xl text-lg" />
-          <input type="password" placeholder="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 mb-8 border-2 border-amber-200 rounded-2xl text-lg" />
-          <button onClick={signUp} disabled={loading} className="w-full bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white py-6 rounded-2xl font-bold text-2xl shadow-lg mb-4">
+          <h1 className="text-7xl font-black text-amber-900 mb-4">Brew Hunt</h1>
+          <p className="text-2xl text-amber-800 mb-12">Real-world treasure hunts in Hackney</p>
+          {authError && <p className="text-red-600 font-bold mb-6 text-lg">{authError}</p>}
+          <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 mb-4 border-2 border-amber-200 rounded-2xl text-lg" />
+          <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 mb-8 border-2 border-amber-200 rounded-2xl text-lg" />
+          <button onClick={signUp} disabled={loading} className="w-full bg-amber-600 hover:bg-amber-700 text-white py-6 rounded-2xl font-bold text-2xl mb-4 shadow-lg">
             {loading ? 'Creating...' : 'Sign Up Free'}
           </button>
-          <button onClick={signIn} disabled={loading} className="w-full bg-gray-700 hover:bg-gray-800 disabled:opacity-60 text-white py-6 rounded-2xl font-bold text-2xl shadow-lg">
+          <button onClick={signIn} disabled={loading} className="w-full bg-gray-800 hover:bg-gray-900 text-white py-6 rounded-2xl font-bold text-2xl shadow-lg">
             Log In
           </button>
         </div>
@@ -402,59 +353,118 @@ export default function App() {
     );
   }
 
-  // ─── LOADING ────────────────────────────────────
   if (!dataLoaded) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50 flex items-center justify-center">
-        <p className="text-2xl text-amber-900 font-bold">Loading your hunts...</p>
+        <p className="text-3xl font-bold text-amber-900 animate-pulse">Loading your adventure...</p>
       </div>
     );
   }
 
   const activeHuntsCount = hunts.filter(h => !completed.includes(h.id)).length;
 
-  // ─── MAIN APP UI ────────────────────────────────
+  // ─── MAIN APP UI ───────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50">
-      <div className="bg-white/80 backdrop-blur-lg shadow-lg p-6 sticky top-0 z-40">
-        <div className="max-w-md mx-auto flex justify-between items-center">
-          <h1 className="text-4xl font-black text-amber-900">Brew Hunt</h1>
-          <div className="flex items-center gap-4">
+      {/* HEADER WITH PROMINENT ADMIN BUTTON */}
+      <div className="bg-white/95 backdrop-blur-xl shadow-2xl border-b-8 border-amber-100 sticky top-0 z-50">
+        <div className="max-w-5xl mx-auto px-6 py-6 flex justify-between items-center">
+          <h1 className="text-5xl md:text-6xl font-black text-amber-900 tracking-tighter">Brew Hunt</h1>
+
+          <div className="flex items-center gap-5">
             {isAdmin && (
               <button
                 onClick={() => setShowAdmin(true)}
-                className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-full font-bold flex items-center gap-2 shadow-lg transition"
+                className="group relative overflow-hidden rounded-2xl font-black transition-all duration-300 shadow-2xl
+                           flex items-center gap-3 px-8 py-4
+                           bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700
+                           text-white hover:shadow-amber-500/50 transform hover:scale-105"
               >
-                <Shield size={20} /> Admin
+                <Shield className="w-8 h-8" />
+                <span className="hidden md:block text-xl">Admin Panel</span>
+                <span className="md:hidden text-lg">Admin</span>
+                <div className="absolute inset-0 bg-white/30 translate-y-full group-hover:translate-y-0 transition-transform duration-500" />
               </button>
             )}
-            <button onClick={signOut} className="text-gray-600 hover:text-gray-900 transition p-2" title="Log out">
-              <LogOut size={28} />
+
+            <button
+              onClick={signOut}
+              className="p-4 rounded-full bg-gray-100 hover:bg-gray-200 transition shadow-lg"
+              title="Log out"
+            >
+              <LogOut className="w-7 h-7 text-gray-700" />
             </button>
           </div>
         </div>
       </div>
 
+      {/* STATS CARD */}
       <div className="max-w-md mx-auto p-6">
-        <div className="bg-white rounded-3xl shadow-2xl p-8 text-center">
+        <div className="bg-white/90 backdrop-blur-lg rounded-3xl shadow-2xl p-10 text-center mb-8 border-4 border-amber-200">
           <div className="flex justify-between items-center">
             <div>
-              <div className="text-6xl font-black text-orange-600">{streak}</div>
-              <p className="text-gray-600">day streak</p>
+              <div className="text-7xl font-black text-orange-600 flex items-center gap-3">
+                {streak} <Flame className="w-16 h-16" />
+              </div>
+              <p className="text-2xl text-gray-700 font-semibold mt-2">Day Streak</p>
             </div>
             <div className="text-right">
-              <div className="text-3xl font-black text-purple-600">{tier}</div>
-              <button onClick={() => setShowCompletedModal(true)} className="text-xl underline text-gray-700">
+              <div className="text-5xl font-black text-purple-600 flex items-center gap-3 justify-end">
+                <Trophy className="w-14 h-14" /> {tier}
+              </div>
+              <button onClick={() => setShowCompletedModal(true)} className="text-xl underline text-gray-700 mt-4 block">
                 {totalHunts} completed • {activeHuntsCount} active
               </button>
             </div>
           </div>
         </div>
 
-        {/* You can paste the rest of your normal UI (filters, hunt cards, modals, etc.) here */}
-        {/* Everything works perfectly now! */}
-
+        {/* HUNT CARDS */}
+        <div className="space-y-6">
+          {filteredHunts.map(hunt => (
+            <div key={hunt.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden transform transition hover:scale-105">
+              {hunt.photo && <img src={hunt.photo} alt={hunt.business_name} className="w-full h-64 object-cover" />}
+              <div className="p-8">
+                <h3 className="text-3xl font-black text-amber-900 mb-3">{hunt.business_name}</h3>
+                <p className="text-gray-600 text-lg mb-4 italic">"{hunt.riddle}"</p>
+                <div className="flex justify-between items-center">
+                  <span className="bg-amber-100 text-amber-800 px-4 py-2 rounded-full font-bold">{hunt.category}</span>
+                  <button
+                    onClick={() => { setCurrentHunt(hunt); setShowModal(true); }}
+                    className="bg-amber-600 hover:bg-amber-700 text-white px-8 py-4 rounded-full font-bold text-xl shadow-lg flex items-center gap-3"
+                  >
+                    <MapPin /> Start Hunt
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
+
+      {/* SELFIE MODAL */}
+      {showModal && currentHunt && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-6">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-10 text-center">
+            <h2 className="text-4xl font-black text-amber-900 mb-6">Submit Proof</h2>
+            <p className="text-xl mb-8">Take a selfie at:</p>
+            <p className="text-2xl font-bold text-amber-700 mb-10">{currentHunt.business_name}</p>
+            <input type="file" accept="image/*" capture="camera" onChange={e => setSelfieFile(e.target.files[0])} className="mb-8" />
+            <div className="flex gap-6">
+              <button onClick={() => { setShowModal(false); setSelfieFile(null); }} className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-5 rounded-2xl font-bold text-xl">
+                Cancel
+              </button>
+              <button
+                onClick={uploadSelfie}
+                disabled={!selfieFile || uploading}
+                className="flex-1 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white py-5 rounded-2xl font-bold text-xl flex items-center justify-center gap-3"
+              >
+                <Camera /> {uploading ? 'Submitting...' : 'Submit'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
