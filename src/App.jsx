@@ -469,13 +469,13 @@ export default function App() {
         const fileName = `hunt_${Date.now()}.${fileExt}`;
         const path = `hunts/${fileName}`;
         const { error: uploadError } = await supabase.storage
-          .from('hunt-images')
+          .from('hunts')
           .upload(path, newHuntPhoto);
         
         if (uploadError) throw uploadError;
 
         const { data: { publicUrl } } = supabase.storage
-          .from('hunt-images')
+          .from('hunts')
           .getPublicUrl(path);
         photoUrl = publicUrl;
       }
