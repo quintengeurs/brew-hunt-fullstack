@@ -330,7 +330,7 @@ export default function App() {
     setSession(null);
   };
 
-  // ─── ADMIN PANEL WITH ALL TABS (FIXED: HUNTS TAB NOW SHOWS) ─────
+  // ─── ADMIN PANEL WITH ALL TABS (NOW WITH "ALL HUNTS" TAB FIXED) ─────
   if (showAdmin) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50">
@@ -361,24 +361,34 @@ export default function App() {
             </button>
           </div>
 
-          {/* ALL HUNTS TAB — FIXED: NOW SHOWS */}
+          {/* ALL HUNTS TAB — NOW FULLY VISIBLE */}
           {adminTab === 'hunts' && (
-            <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {adminHunts.map(hunt => (
-                <div key={hunt.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden transform hover:scale-105 transition">
-                  {hunt.photo ? (
-                    <img src={hunt.photo} alt={hunt.business_name} className="w-full h-64 object-cover" />
-                  ) : (
-                    <div className="bg-gray-200 border-2 border-dashed rounded-t-3xl w-full h-64" />
-                  )}
-                  <div className="p-6">
-                    <h3 className="text-2xl font-black text-amber-900 mb-2">{hunt.business_name}</h3>
-                    <p className="text-gray-600 mb-3 italic">"{hunt.riddle}"</p>
-                    <p className="text-sm text-gray-500 mb-2">Category: {hunt.category}</p>
-                    <p className="text-green-600 font-bold text-lg">Code: {hunt.code}</p>
+            <div className="grid gap-10 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {adminHunts.length === 0 ? (
+                <p className="col-span-full text-center text-3xl text-gray-500 py-20">No hunts yet. Create one!</p>
+              ) : (
+                adminHunts.map(hunt => (
+                  <div key={hunt.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden transform hover:scale-105 transition">
+                    {hunt.photo ? (
+                      <img src={hunt.photo} alt={hunt.business_name} className="w-full h-64 object-cover" />
+                    ) : (
+                      <div className="bg-gray-200 border-2 border-dashed rounded-t-3xl w-full h-64 flex items-center justify-center">
+                        <p className="text-gray-500">No photo</p>
+                      </div>
+                    )}
+                    <div className="p-6">
+                      <h3 className="text-2xl font-black text-amber-900 mb-3">{hunt.business_name}</h3>
+                      <p className="text-gray-600 text-lg italic mb-4">"{hunt.riddle}"</p>
+                      <div className="text-sm space-y-1">
+                        <p><strong>Category:</strong> {hunt.category || '—'}</p>
+                        <p><strong>Code:</strong> <span className="font-mono bg-green-100 px-2 py-1 rounded">{hunt.code}</span></p>
+                        <p><strong>Location:</strong> {hunt.lat.toFixed(6)}, {hunt.lon.toFixed(6)}</p>
+                        <p><strong>Radius:</strong> {hunt.radius}m</p>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           )}
 
@@ -432,7 +442,7 @@ export default function App() {
     );
   }
 
-  // ─── LOGIN, LOADING, MAIN APP (100% YOUR ORIGINAL) ─────
+  // ─── LOGIN, LOADING, MAIN APP — 100% YOUR ORIGINAL ─────
   if (!session) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50 flex items-center justify-center px-6">
@@ -465,7 +475,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50">
-      {/* YOUR ORIGINAL HEADER */}
       <div className="bg-white/95 backdrop-blur-xl shadow-2xl border-b-8 border-amber-100 sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-6 py-6 flex justify-between items-center">
           <h1 className="text-5xl md:text-6xl font-black text-amber-900 tracking-tighter">Brew Hunt</h1>
@@ -491,7 +500,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* STATS + HUNT CARDS + MODAL — 100% UNCHANGED */}
       <div className="max-w-md mx-auto p-6">
         <div className="bg-white/90 backdrop-blur-lg rounded-3xl shadow-2xl p-10 text-center mb-8 border-4 border-amber-200">
           <div className="flex justify-between items-center">
