@@ -36,7 +36,7 @@ export default function App() {
   const [lastActive, setLastActive] = useState(null);
   const [currentHunt, setCurrentHunt] = useState(null);
   const [showModal, setShowModal] = useState(false);
-  const [showCompletedModal, setShowCompletedModal] = useState(false);
+  const [showCompletedModal, setShowCompletedModal] = useState(false); // Fixed: now works
   const [selfieFile, setSelfieFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
@@ -330,7 +330,7 @@ export default function App() {
     setSession(null);
   };
 
-  // ─── ADMIN PANEL WITH ALL TABS (NOW WITH "ALL HUNTS" TAB FIXED) ─────
+  // ─── ADMIN PANEL ───────────────────────────────
   if (showAdmin) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50">
@@ -361,7 +361,7 @@ export default function App() {
             </button>
           </div>
 
-          {/* ALL HUNTS TAB — NOW FULLY VISIBLE */}
+          {/* ALL HUNTS TAB */}
           {adminTab === 'hunts' && (
             <div className="grid gap-10 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {adminHunts.length === 0 ? (
@@ -442,7 +442,7 @@ export default function App() {
     );
   }
 
-  // ─── LOGIN, LOADING, MAIN APP — 100% YOUR ORIGINAL ─────
+  // ─── LOGIN & LOADING ───────────────────────────
   if (!session) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50 flex items-center justify-center px-6">
@@ -472,9 +472,11 @@ export default function App() {
   }
 
   const activeHuntsCount = hunts.filter(h => !completed.includes(h.id)).length;
+  const completedHunts = hunts.filter(h => completed.includes(h.id));
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50">
+      {/* HEADER */}
       <div className="bg-white/95 backdrop-blur-xl shadow-2xl border-b-8 border-amber-100 sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-6 py-6 flex justify-between items-center">
           <h1 className="text-5xl md:text-6xl font-black text-amber-900 tracking-tighter">Brew Hunt</h1>
@@ -500,6 +502,7 @@ export default function App() {
         </div>
       </div>
 
+      {/* STATS CARD */}
       <div className="max-w-md mx-auto p-6">
         <div className="bg-white/90 backdrop-blur-lg rounded-3xl shadow-2xl p-10 text-center mb-8 border-4 border-amber-200">
           <div className="flex justify-between items-center">
@@ -520,28 +523,70 @@ export default function App() {
           </div>
         </div>
 
+        {/* ACTIVE HUNTS */}
         <div className="space-y-6">
-          {filteredHunts.map(hunt => (
-            <div key={hunt.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden transform transition hover:scale-105">
-              {hunt.photo && <img src={hunt.photo} alt={hunt.business_name} className="w-full h-64 object-cover" />}
-              <div className="p-8">
-                <h3 className="text-3xl font-black text-amber-900 mb-3">{hunt.business_name}</h3>
-                <p className="text-gray-600 text-lg mb-4 italic">"{hunt.riddle}"</p>
-                <div className="flex justify-between items-center">
-                  <span className="bg-amber-100 text-amber-800 px-4 py-2 rounded-full font-bold">{hunt.category}</span>
-                  <button
-                    onClick={() => { setCurrentHunt(hunt); setShowModal(true); }}
-                    className="bg-amber-600 hover:bg-amber-700 text-white px-8 py-4 rounded-full font-bold text-xl shadow-lg flex items-center gap-3"
-                  >
-                    <MapPin /> Start Hunt
-                  </button>
+          {filteredHunts.map(hunt => {
+            const isCompleted = completed.includes(hunt.id);
+            return (
+              <div key={hunt.id} className={`bg-white rounded-3xl shadow-2xl overflow-hidden transform transition hover:scale-105 relative ${isCompleted ? 'opacity-80' : ''}`}>
+                {/* GREEN COMPLETED RIBBON */}
+                {isCompleted && (
+                  <div className="absolute top-0 right-0 bg-green-600 text-white px-8 py-3 rounded-bl-3xl font-black text-xl z-10 shadow-lg transform rotate-12 translate-x-4 -translate-y-2">
+                    COMPLETED
+                  </div>
+                )}
+                {hunt.photo && <img src={hunt.photo} alt={hunt.business_name} className="w-full h-64 object-cover" />}
+                <div className="p-8">
+                  <h3 className="text-3xl font-black text-amber-900 mb-3">{hunt.business_name}</h3>
+                  <p className="text-gray-600 text-lg mb-4 italic">"{hunt.riddle}"</p>
+                  <div className="flex justify-between items-center">
+                    <span className="bg-amber-100 text-amber-800 px-4 py-2 rounded-full font-bold">{hunt.category}</span>
+                    <button
+                      onClick={() => { setCurrentHunt(hunt); setShowModal(true); }}
+                      className={`px-8 py-4 rounded-full font-bold text-xl shadow-lg flex items-center gap-3 ${isCompleted ? 'bg-gray-400 cursor-not-allowed' : 'bg-amber-600 hover:bg-amber-700 text-white'}`}
+                      disabled={isCompleted}
+                    >
+                      <MapPin /> {isCompleted ? 'Done' : 'Start Hunt'}
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
+      {/* COMPLETED HUNTS MODAL — NOW WORKING */}
+      {showCompletedModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-6" onClick={() => setShowCompletedModal(false)}>
+          <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-screen overflow-y-auto p-10" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-8">
+              <h2 className="text-5xl font-black text-amber-900">Completed Hunts</h2>
+              <button onClick={() => setShowCompletedModal(false)} className="text-gray-600 hover:text-gray-900">
+                <X size={36} />
+              </button>
+            </div>
+            {completedHunts.length === 0 ? (
+              <p className="text-center text-2xl text-gray-500 py-20">No completed hunts yet. Keep hunting!</p>
+            ) : (
+              <div className="grid gap-6">
+                {completedHunts.map(hunt => (
+                  <div key={hunt.id} className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-3xl p-6 border-4 border-green-300 flex items-center gap-6">
+                    {hunt.photo && <img src={hunt.photo} alt={hunt.business_name} className="w-32 h-32 object-cover rounded-2xl" />}
+                    <div>
+                      <h3 className="text-2xl font-black text-green-800">{hunt.business_name}</h3>
+                      <p className="text-green-700 italic">"{hunt.riddle}"</p>
+                      <p className="text-sm text-green-600 mt-2">Category: {hunt.category}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* SELFIE MODAL */}
       {showModal && currentHunt && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-6">
           <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-10 text-center">
