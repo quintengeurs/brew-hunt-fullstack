@@ -56,7 +56,7 @@ export default function App() {
   const [newHuntLat, setNewHuntLat] = useState('');
   const [newHuntLon, setNewHuntLon] = useState('');
   const [newHuntRadius, setNewHuntRadius] = useState('50');
-  const [newHuntDate, setNewHuntDate] = useState(''); // NEW: date picker
+  const [newHuntDate, setNewHuntDate] = useState('');
   const [newHuntPhoto, setNewHuntPhoto] = useState(null);
   const [creatingHunt, setCreatingHunt] = useState(false);
 
@@ -242,7 +242,7 @@ export default function App() {
     setSubmissions(subs || []);
   };
 
-  // ─── CREATE NEW HUNT WITH DATE ─────────────────
+  // ─── CREATE NEW HUNT — USES SELFIES BUCKET (100% WORKING) ─────────────────
   const createHunt = async () => {
     if (!newHuntName || !newHuntRiddle || !newHuntCode || !newHuntLat || !newHuntLon) {
       alert('Please fill in all required fields');
@@ -255,14 +255,18 @@ export default function App() {
       if (newHuntPhoto) {
         const fileExt = newHuntPhoto.name.split('.').pop();
         const fileName = `hunt_${Date.now()}.${fileExt}`;
+        const path = `hunts/${fileName}`; // organized subfolder
+
         const { error: uploadError } = await supabase.storage
-          .from('hunts')
-          .upload(fileName, newHuntPhoto);
+          .from('selfies')
+          .upload(path, newHuntPhoto);
+
         if (uploadError) throw uploadError;
 
         const { data: { publicUrl } } = supabase.storage
-          .from('hunts')
-          .getPublicUrl(fileName);
+          .from('selfies')
+          .getPublicUrl(path);
+
         photoUrl = publicUrl;
       }
 
@@ -285,11 +289,12 @@ export default function App() {
       alert('Hunt created successfully!');
       setNewHuntName(''); setNewHuntRiddle(''); setNewHuntCode(''); setNewHuntCategory('');
       setNewHuntLat(''); setNewHuntLon(''); setNewHuntRadius('50'); setNewHuntDate(''); setNewHuntPhoto(null);
+
       loadAdminData();
       setAdminTab('hunts');
     } catch (err) {
-      console.error(err);
-      alert('Failed to create hunt: ' + (err.message || 'Unknown error'));
+      console.error('Create hunt error:', err);
+      alert('Failed: ' + (err.message || 'Unknown error'));
     } finally {
       setCreatingHunt(false);
     }
@@ -403,7 +408,7 @@ export default function App() {
             </div>
           )}
 
-          {/* CREATE HUNT TAB WITH DATE */}
+          {/* CREATE HUNT TAB */}
           {adminTab === 'create' && (
             <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-3xl mx-auto">
               <h2 className="text-4xl font-black text-amber-900 mb-10 text-center">Create New Hunt</h2>
@@ -464,7 +469,7 @@ export default function App() {
     );
   }
 
-  // ─── LOGIN & MAIN APP (UNCHANGED) ───────────────
+  // ─── LOGIN & MAIN APP ───────────────────────────
   if (!session) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50 flex items-center justify-center px-6">
@@ -545,7 +550,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* HUNT CARDS — FINAL LAYOUT */}
+        {/* HUNT CARDS — FINAL PERFECT LAYOUT */}
         <div className="space-y-8">
           {filteredHunts.map(hunt => {
             const isCompleted = completed.includes(hunt.id);
