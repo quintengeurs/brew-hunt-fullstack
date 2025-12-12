@@ -194,6 +194,8 @@ export default function App() {
   const loadProgressAndHunts = useCallback(async () => {
     try {
       setError("");
+
+      // Load user progress
       const { data: progressRows, error: progressError } = await supabase
         .from("user_progress")
         .select("*")
@@ -210,8 +212,7 @@ export default function App() {
 
         if (progressRows.length > 1) {
           const all = new Set<string>();
-          let maxTotal = 0,
-            maxStreak = 0;
+          let maxTotal = 0, maxStreak = 0;
           progressRows.forEach((r: any) => {
             if (Array.isArray(r.completed_hunt_ids))
               r.completed_hunt_ids.forEach((id: string) => all.add(id));
@@ -247,10 +248,13 @@ export default function App() {
         setLastActive(null);
       }
 
+      // ─── LOAD HUNTS: TODAY AND FUTURE ONLY ─────────────────────
+      const today = new Date().toISOString().split("T")[0]; // "2025-12-11"
+
       const { data: huntsData, error: huntsError } = await supabase
         .from("hunts")
         .select("*")
-        .gte("date", new Date().toISOString().split('T')[0])
+        .gte("date", today)           // Show hunts from TODAY onwards
         .order("date", { ascending: false });
 
       if (huntsError) throw huntsError;
@@ -265,27 +269,20 @@ export default function App() {
     }
   }, [session, activeFilter]);
 
+  // Also update fetchHunts (used by realtime)
   const fetchHunts = useCallback(async () => {
-    const { data: huntsData, error: huntsError } = await supabase
-    .from("hunts")
-    .select("*")
-    .lte("date", new Date().toISOString().split('T')[0])  // proper date
-    .order("date", { ascending: false });
-    if (data) setHunts(data);
+    const today = new Date().toISOString().split("T")[0];
+
+    const { data, error } = await supabase
+      .from("hunts")
+      .select("*")
+      .gte("date", today)
+      .order("date", { ascending: false });
+
+    if (!error && data) {
+      setHunts(data);
+    }
   }, []);
-
-  const applyFilter = useCallback(
-    (allHunts: any[], completedIds: string[], filterCategory: string) => {
-      let filtered = allHunts.filter((h) => !completedIds.includes(h.id));
-      if (filterCategory !== "All") filtered = filtered.filter((h) => h.category === filterCategory);
-      setFilteredHunts(filtered);
-    },
-    []
-  );
-
-  useEffect(() => {
-    if (dataLoaded && hunts.length > 0) applyFilter(hunts, completed, activeFilter);
-  }, [hunts, completed, activeFilter, dataLoaded, applyFilter]);
 
   // ─── SELFIE UPLOAD ─────────────────────
   const uploadSelfie = useCallback(async () => {
