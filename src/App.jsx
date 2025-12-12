@@ -1,25 +1,40 @@
-import { useState, useEffect, useCallback } from "react"; // Fixed quote
+import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { LogOut, Trophy, Shield, Check, X, AlertCircle, Camera } from "lucide-react";
+import {
+  LogOut,
+  Trophy,
+  Shield,
+  Check,
+  X,
+  AlertCircle,
+  Camera,
+} from "lucide-react";
 
 const supabaseUrl = "https://eeboxlitezqgjyrnssgx.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlYm94bGl0ZXpxZ2p5cm5zc2d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2NjcyNTksImV4cCI6MjA4MDI0MzI1OX0.8VlGLHjEv_0aGWOjiDuLLziOCnUqciIAEWayMUGsXT8";
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
 const ADMIN_EMAIL = "quinten.geurs@gmail.com";
 
-// Safe image handler – never crashes
 const getSafePhotoUrl = (url: string | null): string => {
-  if (!url) return "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=800&h=600&fit=crop";
-  if (typeof url === "string" && (url.startsWith("http") || url.startsWith("https") || url.startsWith("data:image/"))) {
+  if (!url)
+    return "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=800&h=600&fit=crop";
+  if (
+    typeof url === "string" &&
+    (url.startsWith("http") || url.startsWith("https") || url.startsWith("data:image/"))
+  ) {
     return url;
   }
   return "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=800&h=600&fit=crop";
 };
 
-function calculateDistance(lat1: number, lon1: number, lat2:uarios number, lon2: number): number {
+function calculateDistance(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
   const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
@@ -97,7 +112,7 @@ export default function App() {
   const [newHuntPhoto, setNewHuntPhoto] = useState<File | null>(null);
   const [creatingHunt, setCreatingHunt] = useState(false);
 
-  // ─── AUTH & ADMIN DETECTION ─────────────────────
+  // ─── AUTH & PROFILE AUTO-CREATE ─────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
@@ -106,13 +121,30 @@ export default function App() {
       }
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
       if (session?.user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
         setIsAdmin(true);
       } else {
         setIsAdmin(false);
         setShowAdmin(false);
+      }
+
+      // Auto-create profile if missing
+      if (session) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("id", session.user.id)
+          .single();
+
+        if (!profile) {
+          await supabase.from("profiles").insert({
+            id: session.user.id,
+            username: session.user.email?.split("@")[0] || `hunter_${Date.now().toString(36)}`,
+            full_name: session.user.user_metadata.full_name || null,
+          });
+        }
       }
     });
 
@@ -125,9 +157,7 @@ export default function App() {
 
     const huntsChannel = supabase
       .channel("hunts-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "hunts" }, () => {
-        fetchHunts();
-      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "hunts" }, () => fetchHunts())
       .subscribe();
 
     const progressChannel = supabase
@@ -140,9 +170,7 @@ export default function App() {
           table: "user_progress",
           filter: `user_id=eq.${session.user.id}`,
         },
-        () => {
-          loadProgressAndHunts();
-        }
+        () => loadProgressAndHunts()
       )
       .subscribe();
 
@@ -185,7 +213,8 @@ export default function App() {
           let maxTotal = 0,
             maxStreak = 0;
           progressRows.forEach((r: any) => {
-            if (Array.isArray(r.completed_hunt_ids)) r.completed_hunt_ids.forEach((id: string) => all.add(id));
+            if (Array.isArray(r.completed_hunt_ids))
+              r.completed_hunt_ids.forEach((id: string) => all.add(id));
             maxTotal = Math.max(maxTotal, r.total_hunts || 0);
             maxStreak = Math.max(maxStreak, r.streak || 0);
           });
@@ -239,12 +268,12 @@ export default function App() {
 
   const fetchHunts = useCallback(async () => {
     const today = getTodayLocalDate();
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("hunts")
       .select("*")
       .lte("date", today)
       .order("date", { ascending: false });
-    if (!error && data) setHunts(data);
+    if (data) setHunts(data);
   }, []);
 
   const applyFilter = useCallback(
@@ -257,9 +286,7 @@ export default function App() {
   );
 
   useEffect(() => {
-    if (dataLoaded && hunts.length > 0) {
-      applyFilter(hunts, completed, activeFilter);
-    }
+    if (dataLoaded && hunts.length > 0) applyFilter(hunts, completed, activeFilter);
   }, [hunts, completed, activeFilter, dataLoaded, applyFilter]);
 
   // ─── SELFIE UPLOAD ─────────────────────
@@ -325,11 +352,17 @@ export default function App() {
       if (lastActive === getYesterdayLocalDate()) {
         newStreak = streak + 1;
       } else if (lastActive !== today) {
-        newStreak = 1; // Reset streak if missed a day
+        newStreak = 1;
       }
-      // Otherwise: same day → keep current streak
 
-      const newTier = newCompleted.length >= 20 ? "Legend" : newCompleted.length >= 10 ? "Pro" : newCompleted.length >= 5 ? "Hunter" : "Newbie";
+      const newTier =
+        newCompleted.length >= 20
+          ? "Legend"
+          : newCompleted.length >= 10
+          ? "Pro"
+          : newCompleted.length >= 5
+          ? "Hunter"
+          : "Newbie";
 
       await supabase.from("user_progress").upsert(
         {
@@ -360,7 +393,7 @@ export default function App() {
     }
   }, [selfieFile, currentHunt, uploading, completed, session, streak, lastActive]);
 
-  // ─── LEADERBOARD ─────────────────────
+  // ─── LEADERBOARD – SAFE & WITH USERNAMES ─────────────────────
   const loadLeaderboard = useCallback(async () => {
     setLoadingLeaderboard(true);
     try {
@@ -372,27 +405,27 @@ export default function App() {
 
       if (error) throw error;
 
-      const enriched = await Promise.all(
-        (data || []).map(async (item: any) => {
-          try {
-            const { data: userData } = await supabase.auth.admin.getUserById(item.user_id);
-            return {
-              email: userData?.user?.email || "Anonymous",
-              hunts: item.total_hunts,
-              tier: item.tier,
-            };
-          } catch {
-            return {
-              email: "Deleted User",
-              hunts: item.total_hunts,
-              tier: item.tier,
-            };
-          }
-        })
-      );
+      const userIds = data.map((item: any) => item.user_id);
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, username, full_name")
+        .in("id", userIds);
+
+      const profileMap = Object.fromEntries((profiles || []).map((p: any) => [p.id, p]));
+
+      const enriched = data.map((item: any, idx: number) => {
+        const profile = profileMap[item.user_id];
+        const displayName = profile?.username || profile?.full_name || `Hunter #${idx + 1}`;
+        return {
+          displayName,
+          hunts: item.total_hunts,
+          tier: item.tier || "Newbie",
+        };
+      });
 
       setLeaderboardData(enriched);
-    } catch {
+    } catch (err) {
+      console.error("Leaderboard error:", err);
       setLeaderboardData([]);
     } finally {
       setLoadingLeaderboard(false);
@@ -400,9 +433,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (showLeaderboard && leaderboardData.length === 0) {
-      loadLeaderboard();
-    }
+    if (showLeaderboard && leaderboardData.length === 0) loadLeaderboard();
   }, [showLeaderboard, leaderboardData.length, loadLeaderboard]);
 
   // ─── ADMIN DATA ─────────────────────
@@ -495,35 +526,53 @@ export default function App() {
     } finally {
       setCreatingHunt(false);
     }
-  }, [newHuntDate, newHuntCategory, newHuntRiddle, newHuntBusinessName, newHuntCode, newHuntDiscount, newHuntLat, newHuntLon, newHuntRadius, newHuntPhoto, loadAdminData]);
+  }, [
+    newHuntDate,
+    newHuntCategory,
+    newHuntRiddle,
+    newHuntBusinessName,
+    newHuntCode,
+    newHuntDiscount,
+    newHuntLat,
+    newHuntLon,
+    newHuntRadius,
+    newHuntPhoto,
+    loadAdminData,
+  ]);
 
   // ─── ADMIN APPROVE / REJECT ─────────────────────
-  const approveSelfie = useCallback(async (id: string) => {
-    setProcessingSubmission(id);
-    try {
-      const { error } = await supabase.from("selfies").update({ approved: true }).eq("id", id);
-      if (error) throw error;
-      await loadAdminData();
-    } catch {
-      alert("Failed to approve");
-    } finally {
-      setProcessingSubmission(null);
-    }
-  }, [loadAdminData]);
+  const approveSelfie = useCallback(
+    async (id: string) => {
+      setProcessingSubmission(id);
+      try {
+        const { error } = await supabase.from("selfies").update({ approved: true }).eq("id", id);
+        if (error) throw error;
+        await loadAdminData();
+      } catch {
+        alert("Failed to approve");
+      } finally {
+        setProcessingSubmission(null);
+      }
+    },
+    [loadAdminData]
+  );
 
-  const rejectSelfie = useCallback(async (id: string) => {
-    if (!window.confirm("Reject this submission?")) return;
-    setProcessingSubmission(id);
-    try {
-      const { error } = await supabase.from("selfies").delete().eq("id", id);
-      if (error) throw error;
-      await loadAdminData();
-    } catch {
-      alert("Failed to reject");
-    } finally {
-      setProcessingSubmission(null);
-    }
-  }, [loadAdminData]);
+  const rejectSelfie = useCallback(
+    async (id: string) => {
+      if (!window.confirm("Reject this submission?")) return;
+      setProcessingSubmission(id);
+      try {
+        const { error } = await supabase.from("selfies").delete().eq("id", id);
+        if (error) throw error;
+        await loadAdminData();
+      } catch {
+        alert("Failed to reject");
+      } finally {
+        setProcessingSubmission(null);
+      }
+    },
+    [loadAdminData]
+  );
 
   // ─── AUTH ─────────────────────
   const signUp = async () => {
@@ -584,7 +633,10 @@ export default function App() {
             Admin Panel
           </h1>
           <div className="flex gap-4">
-            <button onClick={() => setShowAdmin(false)} className="px-6 py-3 bg-gray-200 hover:bg-gray-300 rounded-full font-bold">
+            <button
+              onClick={() => setShowAdmin(false)}
+              className="px-6 py-3 bg-gray-200 hover:bg-gray-300 rounded-full font-bold"
+            >
               Back to App
             </button>
             <button onClick={signOut} className="text-gray-600 hover:text-gray-800 flex items-center gap-2">
@@ -620,11 +672,7 @@ export default function App() {
             <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
               {adminHunts.map((hunt) => (
                 <div key={hunt.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden">
-                  <img
-                    src={getSafePhotoUrl(hunt.photo)}
-                    alt={hunt.business_name}
-                    className="w-full h-64 object-cover"
-                  />
+                  <img src={getSafePhotoUrl(hunt.photo)} alt={hunt.business_name} className="w-full h-64 object-cover" />
                   <div className="p-6">
                     <span className="inline-block px-4 py-1 bg-amber-200 text-amber-800 rounded-full text-xs font-bold mb-3">
                       {hunt.category}
@@ -1016,7 +1064,9 @@ export default function App() {
               ×
             </button>
             <Trophy className="w-16 h-16 text-amber-600 mx-auto mb-6" />
-            <h2 className="text-4xl font-black text-amber-900 mb-10">Your Completed Hunts ({totalHunts})</h2>
+            <h2 className="text-4xl font-black text-amber-900 mb-10">
+              Your Completed Hunts ({totalHunts})
+            </h2>
             {completedHunts.length === 0 ? (
               <p className="text-gray-600 text-xl">No completed hunts yet — get hunting!</p>
             ) : (
@@ -1118,16 +1168,20 @@ export default function App() {
                   <div
                     key={idx}
                     className={`p-6 rounded-2xl ${
-                      idx === 0 ? "bg-amber-100" : idx === 1 ? "bg-gray-100" : idx === 2 ? "bg-orange-50" : "bg-gray-50"
+                      idx === 0
+                        ? "bg-amber-100"
+                        : idx === 1
+                        ? "bg-gray-100"
+                        : idx === 2
+                        ? "bg-orange-50"
+                        : "bg-gray-50"
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-4">
                         <span className="text-3xl font-black text-gray-700">#{idx + 1}</span>
                         <div>
-                          <p className="font-bold text-xl text-gray-800">
-                            {user.email.split("@")[0]}
-                          </p>
+                          <p className="font-bold text-xl text-gray-800">{user.displayName}</p>
                           <p className="text-sm text-gray-600">{user.tier}</p>
                         </div>
                       </div>
