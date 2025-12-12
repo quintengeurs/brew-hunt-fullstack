@@ -461,82 +461,82 @@ const fetchHunts = useCallback(async () => {
     }
   }, []);
 
-  // ─── CREATE HUNT ─────────────────────
-  const createHunt = useCallback(async () => {
-    if (!newHuntBusinessName.trim() || !newHuntRiddle.trim() || !newHuntCode.trim() || !newHuntLat || !newHuntLon) {
-      alert("Please fill all required fields");
-      return;
+  // ─── CREATE HUNT – FIXED IMAGE UPLOAD ─────────────────────
+const createHunt = useCallback(async () => {
+  if (!newHuntBusinessName.trim() || !newHuntRiddle.trim() || !newHuntCode.trim() || !newHuntLat || !newHuntLon) {
+    alert("Please fill all required fields");
+    return;
+  }
+
+  const lat = parseFloat(newHuntLat);
+  const lon = parseFloat(newHuntLon);
+  if (isNaN(lat) || isNaN(lon)) {
+    alert("Invalid coordinates");
+    return;
+  }
+
+  setCreatingHunt(true);
+  try {
+    let photoUrl: string | null = null;
+
+    if (newHuntPhoto) {
+      const fileExt = newHuntPhoto.name.split(".").pop()?.toLowerCase() || "jpg";
+      const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+
+      // CORRECT: Upload to 'hunts' bucket, root (no subfolder)
+      const { error: uploadError } = await supabase.storage
+        .from("hunts")           // bucket name
+        .upload(fileName, newHuntPhoto, {
+          cacheControl: "3600",
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      // CORRECT: Get public URL properly
+      const { data } = supabase.storage.from("hunts").getPublicUrl[fileName);
+      photoUrl = data.publicUrl;
     }
 
-    const lat = parseFloat(newHuntLat);
-    const lon = parseFloat(newHuntLon);
-    if (isNaN(lat) || isNaN(lon)) {
-      alert("Invalid coordinates");
-      return;
-    }
+    const { error } = await supabase.from("hunts").insert({
+      date: newHuntDate || getTodayLocalDate(),
+      category: newHuntCategory || "Food & Drink",
+      riddle: newHuntRiddle.trim(),
+      business_name: newHuntBusinessName.trim(),
+      code: newHuntCode.trim(),
+      discount: newHuntDiscount.trim(),
+      photo: photoUrl,
+      lat,
+      lon,
+      radius: parseInt(newHuntRadius) || 50,
+    });
 
-    setCreatingHunt(true);
-    try {
-      let photoUrl: string | null = null;
+    if (error) throw error;
 
-      if (newHuntPhoto) {
-        const fileExt = newHuntPhoto.name.split(".").pop();
-        const fileName = `hunt_${Date.now()}.${fileExt}`;
-        const path = `hunts/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage.from("hunts").upload(path, newHuntPhoto);
-        if (uploadError) throw uploadError;
-
-        const { data: { publicUrl } } = supabase.storage.from("hunts").getPublicUrl(path);
-        photoUrl = publicUrl;
-      }
-
-      const { error } = await supabase.from("hunts").insert({
-        date: newHuntDate || getTodayLocalDate(),
-        category: newHuntCategory || "Food & Drink",
-        riddle: newHuntRiddle.trim(),
-        business_name: newHuntBusinessName.trim(),
-        code: newHuntCode.trim(),
-        discount: newHuntDiscount.trim(),
-        photo: photoUrl,
-        lat,
-        lon,
-        radius: parseInt(newHuntRadius) || 50,
-      });
-
-      if (error) throw error;
-
-      alert("Hunt created successfully!");
-      setNewHuntDate("");
-      setNewHuntCategory("");
-      setNewHuntRiddle("");
-      setNewHuntBusinessName("");
-      setNewHuntCode("");
-      setNewHuntDiscount("");
-      setNewHuntLat("");
-      setNewHuntLon("");
-      setNewHuntRadius("50");
-      setNewHuntPhoto(null);
-      loadAdminData();
-      setAdminTab("hunts");
-    } catch (err: any) {
-      alert("Failed to create hunt: " + (err.message || "Unknown error"));
-    } finally {
-      setCreatingHunt(false);
-    }
-  }, [
-    newHuntDate,
-    newHuntCategory,
-    newHuntRiddle,
-    newHuntBusinessName,
-    newHuntCode,
-    newHuntDiscount,
-    newHuntLat,
-    newHuntLon,
-    newHuntRadius,
-    newHuntPhoto,
-    loadAdminData,
-  ]);
+    alert("Hunt created successfully!");
+    // Reset form...
+    setNewHuntDate("");
+    setNewHuntCategory("");
+    setNewHuntRiddle("");
+    setNewHuntBusinessName("");
+    setNewHuntCode("");
+    setNewHuntDiscount("");
+    setNewHuntLat("");
+    setNewHuntLon("");
+    setNewHuntRadius("50");
+    setNewHuntPhoto(null);
+    loadAdminData();
+    setAdminTab("hunts");
+  } catch (err: any) {
+    alert("Failed to create hunt: " + (err.message || "Unknown error"));
+  } finally {
+    setCreatingHunt(false);
+  }
+}, [
+  newHuntDate, newHuntCategory, newHuntRiddle, newHuntBusinessName,
+  newHuntCode, newHuntDiscount, newHuntLat, newHuntLon, newHuntRadius,
+  newHuntPhoto, loadAdminData
+]);
 
   // ─── ADMIN APPROVE / REJECT ─────────────────────
   const approveSelfie = useCallback(
