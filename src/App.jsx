@@ -247,11 +247,10 @@ export default function App() {
         setLastActive(null);
       }
 
-      const today = getTodayLocalDate();
       const { data: huntsData, error: huntsError } = await supabase
         .from("hunts")
         .select("*")
-        .lte("date", today)
+        .gte("date", new Date().toISOString().split('T')[0])
         .order("date", { ascending: false });
 
       if (huntsError) throw huntsError;
@@ -267,12 +266,11 @@ export default function App() {
   }, [session, activeFilter]);
 
   const fetchHunts = useCallback(async () => {
-    const today = getTodayLocalDate();
-    const { data } = await supabase
-      .from("hunts")
-      .select("*")
-      .lte("date", today)
-      .order("date", { ascending: false });
+    const { data: huntsData, error: huntsError } = await supabase
+    .from("hunts")
+    .select("*")
+    .lte("date", new Date().toISOString().split('T')[0])  // proper date
+    .order("date", { ascending: false });
     if (data) setHunts(data);
   }, []);
 
