@@ -96,7 +96,7 @@ export default function App() {
   const [showAdmin, setShowAdmin] = useState(false);
   const [adminTab, setAdminTab] = useState("hunts");
   const [adminHunts, setAdminHunts] = useState<any[]>([]);
-  const [submissions, setSubmissions] = useState<any[]>([]);
+  const [selfies, setselfies] = useState<any[]>([]);
   const [processingSubmission, setProcessingSubmission] = useState<string | null>(null);
 
   // Create Hunt Form
@@ -327,10 +327,10 @@ const fetchHunts = useCallback(async () => {
       const fileExt = selfieFile.name.split(".").pop();
       const fileName = `selfies/${session.user.id}_${currentHunt.id}_${Date.now()}.${fileExt}`;
 
-      const { error: uploadError } = await supabase.storage.from("submissions").upload(fileName, selfieFile);
+      const { error: uploadError } = await supabase.storage.from("selfies").upload(fileName, selfieFile);
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage.from("submissions").getPublicUrl(fileName);
+      const { data: { publicUrl } } = supabase.storage.from("selfies").getPublicUrl(fileName);
 
       const { error: insertError } = await supabase.from("selfies").insert({
         user_id: session.user.id,
@@ -339,7 +339,7 @@ const fetchHunts = useCallback(async () => {
       });
 
       if (insertError) {
-        await supabase.storage.from("submissions").remove([fileName]);
+        await supabase.storage.from("selfies").remove([fileName]);
         throw insertError;
       }
 
@@ -455,7 +455,7 @@ const fetchHunts = useCallback(async () => {
           return { ...sub, hunt_name: hunt?.business_name || "Unknown", user_email: sub.user_id };
         })
       );
-      setSubmissions(enriched);
+      setselfies(enriched);
     } catch (e) {
       setError("Failed to load admin data");
     }
@@ -652,10 +652,10 @@ const createHunt = useCallback(async () => {
               All Hunts ({adminHunts.length})
             </button>
             <button
-              onClick={() => setAdminTab("submissions")}
-              className={`pb-4 px-6 text-2xl font-bold ${adminTab === "submissions" ? "text-amber-600 border-b-4 border-amber-600" : "text-gray-600"}`}
+              onClick={() => setAdminTab("selfies")}
+              className={`pb-4 px-6 text-2xl font-bold ${adminTab === "selfies" ? "text-amber-600 border-b-4 border-amber-600" : "text-gray-600"}`}
             >
-              Pending ({submissions.filter((s) => !s.approved).length})
+              Pending ({selfies.filter((s) => !s.approved).length})
             </button>
             <button
               onClick={() => setAdminTab("create")}
@@ -686,13 +686,13 @@ const createHunt = useCallback(async () => {
             </div>
           )}
 
-          {/* SUBMISSIONS */}
-          {adminTab === "submissions" && (
+          {/* selfies */}
+          {adminTab === "selfies" && (
             <>
-              {submissions.filter((s) => !s.approved).length === 0 ? (
-                <p className="text-center text-gray-600 text-xl py-12">No pending submissions</p>
+              {selfies.filter((s) => !s.approved).length === 0 ? (
+                <p className="text-center text-gray-600 text-xl py-12">No pending selfies</p>
               ) : (
-                submissions
+                selfies
                   .filter((s) => !s.approved)
                   .map((sub) => (
                     <div key={sub.id} className="bg-white rounded-3xl shadow-2xl flex flex-col lg:flex-row mb-8">
