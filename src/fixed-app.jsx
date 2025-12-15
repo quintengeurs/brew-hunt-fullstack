@@ -299,12 +299,8 @@ export default function App() {
     setError("");
 
     try {
-      if (!navigator.geolocation) {
-        alert("Geolocation not supported by your browser");
-        throw new Error("Geolocation not supported");
-      }
+      if (!navigator.geolocation) throw new Error("Geolocation not supported");
 
-      console.log('Getting location...');
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
@@ -313,16 +309,12 @@ export default function App() {
         });
       });
 
-      console.log('Location obtained:', position.coords);
-
       const distance = calculateDistance(
         position.coords.latitude,
         position.coords.longitude,
         currentHunt.lat,
         currentHunt.lon
       );
-
-      console.log('Distance check:', { distance, required: currentHunt.radius });
 
       if (distance > currentHunt.radius) {
         alert(`You are ${Math.round(distance)}m away. Need to be within ${currentHunt.radius}m`);
@@ -333,19 +325,11 @@ export default function App() {
       const fileExt = selfieFile.name.split(".").pop()?.toLowerCase() || "jpg";
       const fileName = `${session.user.id}_${currentHunt.id}_${Date.now()}.${fileExt}`;
 
-      console.log('Attempting upload:', { fileName, bucket: 'selfies', userId: session.user.id });
-
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from("selfies")
         .upload(fileName, selfieFile);
 
-      console.log('Upload result:', { uploadData, uploadError });
-
-      if (uploadError) {
-        console.error('Upload failed:', uploadError);
-        alert(`Upload failed: ${uploadError.message || JSON.stringify(uploadError)}`);
-        throw uploadError;
-      }
+      if (uploadError) throw uploadError;
 
       const { data: { publicUrl } } = supabase.storage
         .from("selfies")
@@ -393,9 +377,7 @@ export default function App() {
       setCurrentHunt(null);
       alert(`Success! Your code is: ${currentHunt.code}`);
     } catch (err: any) {
-      console.error('Full error:', err);
-      const errorMessage = err.message || err.error || JSON.stringify(err);
-      alert(`Upload failed: ${errorMessage}`);
+      alert(err.message || "Upload failed");
     } finally {
       setUploading(false);
     }
@@ -414,16 +396,10 @@ export default function App() {
       if (error) throw error;
 
       const userIds = data.map((item: any) => item.user_id);
-      
-      // Get profiles directly instead of using admin API
-      const { data: profiles, error: profilesError } = await supabase
+      const { data: profiles } = await supabase
         .from("profiles")
         .select("id, username, full_name")
         .in("id", userIds);
-
-      if (profilesError) {
-        console.error('Profiles error:', profilesError);
-      }
 
       const profileMap = Object.fromEntries((profiles || []).map((p: any) => [p.id, p]));
 
@@ -550,11 +526,9 @@ export default function App() {
     try {
       const { error } = await supabase.from("selfies").update({ approved: true }).eq("id", id);
       if (error) throw error;
-      alert("Selfie approved successfully!");
       await loadAdminData();
-    } catch (err: any) {
-      alert("Failed to approve: " + (err.message || "Unknown error"));
-      console.error("Approve error:", err);
+    } catch {
+      alert("Failed to approve");
     } finally {
       setProcessingSubmission(null);
     }
