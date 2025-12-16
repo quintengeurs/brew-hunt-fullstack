@@ -177,15 +177,6 @@ export default function App() {
   }, [session, showAdmin]);
 
   // ─── LOAD DATA ─────────────────────
-  const applyFilter = useCallback(
-    (allHunts, completedIds, filterCategory) => {
-      let filtered = allHunts.filter((h) => !completedIds.includes(h.id));
-      if (filterCategory !== "All") filtered = filtered.filter((h) => h.category === filterCategory);
-      setFilteredHunts(filtered);
-    },
-    []
-  );
-
   const loadProgressAndHunts = useCallback(async () => {
     if (!session) return;
     
@@ -247,14 +238,17 @@ export default function App() {
       if (huntsError) throw huntsError;
 
       setHunts(huntsData || []);
-      applyFilter(huntsData || [], completedIds, activeFilter);
+      // Apply filter using current activeFilter value
+      let filtered = huntsData.filter((h) => !completedIds.includes(h.id));
+      if (activeFilter !== "All") filtered = filtered.filter((h) => h.category === activeFilter);
+      setFilteredHunts(filtered);
       setDataLoaded(true);
     } catch (e) {
       console.error("Load error:", e);
       setError("Failed to load hunts. Please refresh.");
       setDataLoaded(true);
     }
-  }, [session, activeFilter, applyFilter]);
+  }, [session, activeFilter]);
 
   useEffect(() => {
     if (!session) return;
@@ -264,7 +258,8 @@ export default function App() {
       setDataLoaded(false);
       loadProgressAndHunts();
     }
-  }, [session, showAdmin, loadProgressAndHunts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, showAdmin]);
 
   const fetchHunts = useCallback(async () => {
     try {
@@ -283,9 +278,14 @@ export default function App() {
     }
   }, []);
 
+  // Apply filters whenever they change
   useEffect(() => {
-    if (dataLoaded && hunts.length > 0) applyFilter(hunts, completed, activeFilter);
-  }, [hunts, completed, activeFilter, dataLoaded, applyFilter]);
+    if (dataLoaded && hunts.length > 0) {
+      let filtered = hunts.filter((h) => !completed.includes(h.id));
+      if (activeFilter !== "All") filtered = filtered.filter((h) => h.category === activeFilter);
+      setFilteredHunts(filtered);
+    }
+  }, [hunts, completed, activeFilter, dataLoaded]);
 
   // ─── SELFIE UPLOAD ─────────────────────
   const uploadSelfie = useCallback(async () => {
@@ -450,7 +450,8 @@ export default function App() {
     if (showLeaderboard) {
       loadLeaderboard();
     }
-  }, [showLeaderboard, loadLeaderboard]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showLeaderboard]);
 
   // ─── ADMIN DATA ─────────────────────
   const loadAdminData = useCallback(async () => {
