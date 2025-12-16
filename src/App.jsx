@@ -182,18 +182,17 @@ export default function App() {
   }, [session, showAdmin]);
 
   // ─── LOAD DATA ─────────────────────
-  useEffect(() => {
-    if (!session) return;
-    if (showAdmin) {
-      loadAdminData();
-    } else {
-      setDataLoaded(false);
-      loadProgressAndHunts();
-    }
-  }, [session, showAdmin]);
+  const applyFilter = useCallback(
+    (allHunts: any[], completedIds: string[], filterCategory: string) => {
+      let filtered = allHunts.filter((h) => !completedIds.includes(h.id));
+      if (filterCategory !== "All") filtered = filtered.filter((h) => h.category === filterCategory);
+      setFilteredHunts(filtered);
+    },
+    []
+  );
 
   const loadProgressAndHunts = useCallback(async () => {
-    if (!session) return; // FIX 1: Guard against missing session
+    if (!session) return;
     
     try {
       setError("");
@@ -260,7 +259,17 @@ export default function App() {
       setError("Failed to load hunts. Please refresh.");
       setDataLoaded(true);
     }
-  }, [session, activeFilter, applyFilter]); // FIX 2: Add applyFilter to dependencies
+  }, [session, activeFilter, applyFilter]);
+
+  useEffect(() => {
+    if (!session) return;
+    if (showAdmin) {
+      loadAdminData();
+    } else {
+      setDataLoaded(false);
+      loadProgressAndHunts();
+    }
+  }, [session, showAdmin, loadProgressAndHunts]);
 
   const fetchHunts = useCallback(async () => {
     const todayISO = new Date().toISOString().split("T")[0];
@@ -272,22 +281,13 @@ export default function App() {
     if (data) setHunts(data);
   }, []);
 
-  const applyFilter = useCallback(
-    (allHunts: any[], completedIds: string[], filterCategory: string) => {
-      let filtered = allHunts.filter((h) => !completedIds.includes(h.id));
-      if (filterCategory !== "All") filtered = filtered.filter((h) => h.category === filterCategory);
-      setFilteredHunts(filtered);
-    },
-    []
-  );
-
   useEffect(() => {
     if (dataLoaded && hunts.length > 0) applyFilter(hunts, completed, activeFilter);
   }, [hunts, completed, activeFilter, dataLoaded, applyFilter]);
 
   // ─── SELFIE UPLOAD ─────────────────────
   const uploadSelfie = useCallback(async () => {
-    if (!selfieFile || !currentHunt || uploading || !session) return; // FIX 3: Add session guard
+    if (!selfieFile || !currentHunt || uploading || !session) return;
     if (completed.includes(currentHunt.id)) {
       alert("You have already completed this hunt!");
       setShowModal(false);
@@ -322,18 +322,41 @@ export default function App() {
         return;
       }
 
+      // Enhanced file validation
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+      if (!allowedTypes.includes(selfieFile.type)) {
+        throw new Error('Invalid file type. Please upload a JPG, PNG, or WebP image.');
+      }
+
+      // Check file size (max 5MB)
+      if (selfieFile.size > 5 * 1024 * 1024) {
+        throw new Error('File too large. Maximum size is 5MB.');
+      }
+
       const fileExt = selfieFile.name.split(".").pop()?.toLowerCase() || "jpg";
-      const fileName = `${session.user.id}_${currentHunt.id}_${Date.now()}.${fileExt}`;
+      const fileName = `${session.user.id}/${currentHunt.id}_${Date.now()}.${fileExt}`;
 
-      const { error: uploadError } = await supabase.storage
+      console.log("Uploading selfie to:", fileName);
+
+      const { error: uploadError, data: uploadData } = await supabase.storage
         .from("selfies")
-        .upload(fileName, selfieFile);
+        .upload(fileName, selfieFile, {
+          cacheControl: '3600',
+          upsert: false
+        });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error("Upload error:", uploadError);
+        throw new Error(`Upload failed: ${uploadError.message}`);
+      }
+
+      console.log("Upload successful:", uploadData);
 
       const { data: { publicUrl } } = supabase.storage
         .from("selfies")
         .getPublicUrl(fileName);
+
+      console.log("Public URL:", publicUrl);
 
       const { error: insertError } = await supabase.from("selfies").insert({
         user_id: session.user.id,
@@ -342,8 +365,9 @@ export default function App() {
       });
 
       if (insertError) {
+        console.error("Insert error:", insertError);
         await supabase.storage.from("selfies").remove([fileName]);
-        throw insertError;
+        throw new Error(`Database insert failed: ${insertError.message}`);
       }
 
       const newCompleted = [...new Set([...completed, currentHunt.id])];
@@ -377,6 +401,7 @@ export default function App() {
       setCurrentHunt(null);
       alert(`Success! Your code is: ${currentHunt.code}`);
     } catch (err: any) {
+      console.error("Selfie upload error:", err);
       alert(err.message || "Upload failed");
     } finally {
       setUploading(false);
