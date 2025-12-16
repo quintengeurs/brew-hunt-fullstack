@@ -338,7 +338,7 @@ export default function App() {
       console.log("Uploading selfie to:", fileName);
 
       const { error: uploadError, data: uploadData } = await supabase.storage
-        .from("user_uploads")
+        .from("user-uploads")
         .upload(fileName, selfieFile, {
           cacheControl: '3600',
           upsert: false
@@ -352,12 +352,12 @@ export default function App() {
       console.log("Upload successful:", uploadData);
 
       const { data: { publicUrl } } = supabase.storage
-        .from("user_uploads")
+        .from("user-uploads")
         .getPublicUrl(fileName);
 
       console.log("Public URL:", publicUrl);
 
-      const { error: insertError } = await supabase.from("user_uploads").insert({
+      const { error: insertError } = await supabase.from("user-uploads").insert({
         user_id: session.user.id,
         hunt_id: currentHunt.id,
         image_url: publicUrl,
@@ -365,7 +365,7 @@ export default function App() {
 
       if (insertError) {
         console.error("Insert error:", insertError);
-        await supabase.storage.from("user_uploads").remove([fileName]);
+        await supabase.storage.from("user-uploads").remove([fileName]);
         throw new Error(`Database insert failed: ${insertError.message}`);
       }
 
@@ -455,7 +455,7 @@ export default function App() {
         .order("date", { ascending: false });
       setAdminHunts(allHunts || []);
 
-      const { data: subs } = await supabase.from("user_uploads").select("*").order("created_at", { ascending: false });
+      const { data: subs } = await supabase.from("user-uploads").select("*").order("created_at", { ascending: false });
 
       const enriched = await Promise.all(
         (subs || []).map(async (sub) => {
@@ -548,7 +548,7 @@ export default function App() {
   const approveSelfie = useCallback(async (id: string) => {
     setProcessingSubmission(id);
     try {
-      const { error } = await supabase.from("user_uploads").update({ approved: true }).eq("id", id);
+      const { error } = await supabase.from("user-uploads").update({ approved: true }).eq("id", id);
       if (error) throw error;
       await loadAdminData();
     } catch {
@@ -562,7 +562,7 @@ export default function App() {
     if (!window.confirm("Reject this submission?")) return;
     setProcessingSubmission(id);
     try {
-      const { error } = await supabase.from("user_uploads").delete().eq("id", id);
+      const { error } = await supabase.from("user-uploads").delete().eq("id", id);
       if (error) throw error;
       await loadAdminData();
     } catch {
