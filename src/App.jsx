@@ -29,12 +29,7 @@ const getSafePhotoUrl = (url) => {
   return "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=800&h=600&fit=crop";
 };
 
-function calculateDistance(
-  lat1,
-  lon1,
-  lat2,
-  lon2
-) {
+function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
@@ -205,14 +200,14 @@ export default function App() {
 
       if (progressError) throw progressError;
 
-      let completedIds: string[] = [];
+      let completedIds = [];
       const progress = progressRows?.[0] || null;
 
       if (progress) {
         completedIds = Array.isArray(progress.completed_hunt_ids) ? progress.completed_hunt_ids : [];
 
         if (progressRows.length > 1) {
-          const all = new Set<string>();
+          const all = new Set();
           let maxTotal = 0, maxStreak = 0;
           progressRows.forEach((r) => {
             if (Array.isArray(r.completed_hunt_ids)) r.completed_hunt_ids.forEach((id) => all.add(id));
@@ -272,13 +267,20 @@ export default function App() {
   }, [session, showAdmin, loadProgressAndHunts]);
 
   const fetchHunts = useCallback(async () => {
-    const todayISO = new Date().toISOString().split("T")[0];
-    const { data } = await supabase
-      .from("hunts")
-      .select("*")
-      .gte("date", todayISO)
-      .order("date", { ascending: false });
-    if (data) setHunts(data);
+    try {
+      const todayISO = new Date().toISOString().split("T")[0];
+      const { data, error } = await supabase
+        .from("hunts")
+        .select("*")
+        .gte("date", todayISO)
+        .order("date", { ascending: false });
+      
+      if (error) throw error;
+      if (data) setHunts(data);
+    } catch (e) {
+      console.error("Fetch hunts error:", e);
+      setError("Failed to fetch hunts");
+    }
   }, []);
 
   useEffect(() => {
@@ -436,26 +438,38 @@ export default function App() {
       setLeaderboardData(enriched);
     } catch (err) {
       console.error("Leaderboard error:", err);
+      setError("Failed to load leaderboard");
       setLeaderboardData([]);
     } finally {
       setLoadingLeaderboard(false);
     }
   }, []);
 
+  // Reload leaderboard whenever modal opens
   useEffect(() => {
-    if (showLeaderboard && leaderboardData.length === 0) loadLeaderboard();
-  }, [showLeaderboard, leaderboardData.length, loadLeaderboard]);
+    if (showLeaderboard) {
+      loadLeaderboard();
+    }
+  }, [showLeaderboard, loadLeaderboard]);
 
   // ─── ADMIN DATA ─────────────────────
   const loadAdminData = useCallback(async () => {
     try {
-      const { data: allHunts } = await supabase
+      setError("");
+      const { data: allHunts, error: huntsError } = await supabase
         .from("hunts")
         .select("*")
         .order("date", { ascending: false });
+      
+      if (huntsError) throw huntsError;
       setAdminHunts(allHunts || []);
 
-      const { data: subs } = await supabase.from("user-uploads").select("*").order("created_at", { ascending: false });
+      const { data: subs, error: subsError } = await supabase
+        .from("user-uploads")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (subsError) throw subsError;
 
       const enriched = await Promise.all(
         (subs || []).map(async (sub) => {
@@ -469,6 +483,7 @@ export default function App() {
       );
       setSelfies(enriched);
     } catch (e) {
+      console.error("Admin data load error:", e);
       setError("Failed to load admin data");
     }
   }, []);
@@ -489,7 +504,7 @@ export default function App() {
 
     setCreatingHunt(true);
     try {
-      let photoUrl: string | null = null;
+      let photoUrl = null;
 
       if (newHuntPhoto) {
         const fileExt = newHuntPhoto.name.split(".").pop()?.toLowerCase() || "jpg";
@@ -534,6 +549,7 @@ export default function App() {
       loadAdminData();
       setAdminTab("hunts");
     } catch (err) {
+      console.error("Create hunt error:", err);
       alert("Failed to create hunt: " + (err.message || "Unknown error"));
     } finally {
       setCreatingHunt(false);
@@ -545,27 +561,29 @@ export default function App() {
   ]);
 
   // ─── ADMIN APPROVE / REJECT ─────────────────────
-  const approveSelfie = useCallback(async (id: string) => {
+  const approveSelfie = useCallback(async (id) => {
     setProcessingSubmission(id);
     try {
       const { error } = await supabase.from("user-uploads").update({ approved: true }).eq("id", id);
       if (error) throw error;
       await loadAdminData();
-    } catch {
+    } catch (err) {
+      console.error("Approve error:", err);
       alert("Failed to approve");
     } finally {
       setProcessingSubmission(null);
     }
   }, [loadAdminData]);
 
-  const rejectSelfie = useCallback(async (id: string) => {
+  const rejectSelfie = useCallback(async (id) => {
     if (!window.confirm("Reject this submission?")) return;
     setProcessingSubmission(id);
     try {
       const { error } = await supabase.from("user-uploads").delete().eq("id", id);
       if (error) throw error;
       await loadAdminData();
-    } catch {
+    } catch (err) {
+      console.error("Reject error:", err);
       alert("Failed to reject");
     } finally {
       setProcessingSubmission(null);
@@ -650,6 +668,7 @@ export default function App() {
       setNewHuntPhoto(null);
       loadAdminData();
     } catch (err) {
+      console.error("Update hunt error:", err);
       alert("Failed to update hunt: " + (err.message || "Unknown error"));
     } finally {
       setCreatingHunt(false);
@@ -660,7 +679,7 @@ export default function App() {
     newHuntPhoto, loadAdminData
   ]);
 
-  const deleteHunt = useCallback(async (id: string) => {
+  const deleteHunt = useCallback(async (id) => {
     if (!window.confirm("Are you sure you want to delete this hunt? This cannot be undone.")) return;
     
     try {
@@ -669,6 +688,7 @@ export default function App() {
       alert("Hunt deleted successfully!");
       loadAdminData();
     } catch (err) {
+      console.error("Delete hunt error:", err);
       alert("Failed to delete hunt: " + (err.message || "Unknown error"));
     }
   }, [loadAdminData]);
@@ -765,36 +785,44 @@ export default function App() {
 
           {/* ALL HUNTS */}
           {adminTab === "hunts" && (
-            <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
-              {adminHunts.map((hunt) => (
-                <div key={hunt.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden">
-                  <img src={getSafePhotoUrl(hunt.photo)} alt={hunt.business_name} className="w-full h-64 object-cover" />
-                  <div className="p-6">
-                    <span className="inline-block px-4 py-1 bg-amber-200 text-amber-800 rounded-full text-xs font-bold mb-3">
-                      {hunt.category}
-                    </span>
-                    <h3 className="text-2xl font-black text-amber-900 mb-2">{hunt.business_name}</h3>
-                    <p className="text-gray-600 italic mb-4">"{hunt.riddle}"</p>
-                    <p className="text-sm"><strong>Code:</strong> {hunt.code}</p>
-                    <p className="text-sm"><strong>Date:</strong> {new Date(hunt.date).toLocaleDateString()}</p>
-                    <p className="text-sm mb-4"><strong>Radius:</strong> {hunt.radius}m</p>
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => startEditHunt(hunt)}
-                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold transition"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => deleteHunt(hunt.id)}
-                        className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl font-bold transition"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
+            <div>
+              {adminHunts.length === 0 ? (
+                <div className="text-center py-12 bg-white rounded-3xl shadow-xl p-8">
+                  <p className="text-gray-600 text-xl">No hunts created yet</p>
                 </div>
-              ))}
+              ) : (
+                <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+                  {adminHunts.map((hunt) => (
+                    <div key={hunt.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden">
+                      <img src={getSafePhotoUrl(hunt.photo)} alt={hunt.business_name} className="w-full h-64 object-cover" />
+                      <div className="p-6">
+                        <span className="inline-block px-4 py-1 bg-amber-200 text-amber-800 rounded-full text-xs font-bold mb-3">
+                          {hunt.category}
+                        </span>
+                        <h3 className="text-2xl font-black text-amber-900 mb-2">{hunt.business_name}</h3>
+                        <p className="text-gray-600 italic mb-4">"{hunt.riddle}"</p>
+                        <p className="text-sm"><strong>Code:</strong> {hunt.code}</p>
+                        <p className="text-sm"><strong>Date:</strong> {new Date(hunt.date).toLocaleDateString()}</p>
+                        <p className="text-sm mb-4"><strong>Radius:</strong> {hunt.radius}m</p>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => startEditHunt(hunt)}
+                            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold transition"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => deleteHunt(hunt.id)}
+                            className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl font-bold transition"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -1325,6 +1353,3 @@ export default function App() {
     </div>
   );
 }
-
-
-
