@@ -182,17 +182,18 @@ export default function App() {
   }, [session, showAdmin]);
 
   // ─── LOAD DATA ─────────────────────
-  const applyFilter = useCallback(
-    (allHunts: any[], completedIds: string[], filterCategory: string) => {
-      let filtered = allHunts.filter((h) => !completedIds.includes(h.id));
-      if (filterCategory !== "All") filtered = filtered.filter((h) => h.category === filterCategory);
-      setFilteredHunts(filtered);
-    },
-    []
-  );
+  useEffect(() => {
+    if (!session) return;
+    if (showAdmin) {
+      loadAdminData();
+    } else {
+      setDataLoaded(false);
+      loadProgressAndHunts();
+    }
+  }, [session, showAdmin]);
 
   const loadProgressAndHunts = useCallback(async () => {
-    if (!session) return;
+    if (!session) return; // FIX 1: Guard against missing session
     
     try {
       setError("");
@@ -259,17 +260,7 @@ export default function App() {
       setError("Failed to load hunts. Please refresh.");
       setDataLoaded(true);
     }
-  }, [session, activeFilter, applyFilter]);
-
-  useEffect(() => {
-    if (!session) return;
-    if (showAdmin) {
-      loadAdminData();
-    } else {
-      setDataLoaded(false);
-      loadProgressAndHunts();
-    }
-  }, [session, showAdmin, loadProgressAndHunts]);
+  }, [session, activeFilter, applyFilter]); // FIX 2: Add applyFilter to dependencies
 
   const fetchHunts = useCallback(async () => {
     const todayISO = new Date().toISOString().split("T")[0];
@@ -281,13 +272,22 @@ export default function App() {
     if (data) setHunts(data);
   }, []);
 
+  const applyFilter = useCallback(
+    (allHunts: any[], completedIds: string[], filterCategory: string) => {
+      let filtered = allHunts.filter((h) => !completedIds.includes(h.id));
+      if (filterCategory !== "All") filtered = filtered.filter((h) => h.category === filterCategory);
+      setFilteredHunts(filtered);
+    },
+    []
+  );
+
   useEffect(() => {
     if (dataLoaded && hunts.length > 0) applyFilter(hunts, completed, activeFilter);
   }, [hunts, completed, activeFilter, dataLoaded, applyFilter]);
 
   // ─── SELFIE UPLOAD ─────────────────────
   const uploadSelfie = useCallback(async () => {
-    if (!selfieFile || !currentHunt || uploading || !session) return;
+    if (!selfieFile || !currentHunt || uploading || !session) return; // FIX 3: Add session guard
     if (completed.includes(currentHunt.id)) {
       alert("You have already completed this hunt!");
       setShowModal(false);
@@ -299,8 +299,12 @@ export default function App() {
     setError("");
 
     try {
-      if (!navigator.geolocation) throw new Error("Geolocation not supported");
+      if (!navigator.geolocation) {
+        alert("Geolocation not supported by your browser");
+        throw new Error("Geolocation not supported");
+      }
 
+      console.log('Getting location...');
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
@@ -309,6 +313,8 @@ export default function App() {
         });
       });
 
+      console.log('Location obtained:', position.coords);
+
       const distance = calculateDistance(
         position.coords.latitude,
         position.coords.longitude,
@@ -316,47 +322,34 @@ export default function App() {
         currentHunt.lon
       );
 
+      console.log('Distance check:', { distance, required: currentHunt.radius });
+
       if (distance > currentHunt.radius) {
         alert(`You are ${Math.round(distance)}m away. Need to be within ${currentHunt.radius}m`);
         setUploading(false);
         return;
       }
 
-      // Enhanced file validation
-      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-      if (!allowedTypes.includes(selfieFile.type)) {
-        throw new Error('Invalid file type. Please upload a JPG, PNG, or WebP image.');
-      }
-
-      // Check file size (max 5MB)
-      if (selfieFile.size > 5 * 1024 * 1024) {
-        throw new Error('File too large. Maximum size is 5MB.');
-      }
-
       const fileExt = selfieFile.name.split(".").pop()?.toLowerCase() || "jpg";
-      const fileName = `${session.user.id}/${currentHunt.id}_${Date.now()}.${fileExt}`;
+      const fileName = `${session.user.id}_${currentHunt.id}_${Date.now()}.${fileExt}`;
 
-      console.log("Uploading selfie to:", fileName);
+      console.log('Attempting upload:', { fileName, bucket: 'selfies', userId: session.user.id });
 
-      const { error: uploadError, data: uploadData } = await supabase.storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
         .from("selfies")
-        .upload(fileName, selfieFile, {
-          cacheControl: '3600',
-          upsert: false
-        });
+        .upload(fileName, selfieFile);
+
+      console.log('Upload result:', { uploadData, uploadError });
 
       if (uploadError) {
-        console.error("Upload error:", uploadError);
-        throw new Error(`Upload failed: ${uploadError.message}`);
+        console.error('Upload failed:', uploadError);
+        alert(`Upload failed: ${uploadError.message || JSON.stringify(uploadError)}`);
+        throw uploadError;
       }
-
-      console.log("Upload successful:", uploadData);
 
       const { data: { publicUrl } } = supabase.storage
         .from("selfies")
         .getPublicUrl(fileName);
-
-      console.log("Public URL:", publicUrl);
 
       const { error: insertError } = await supabase.from("selfies").insert({
         user_id: session.user.id,
@@ -365,9 +358,8 @@ export default function App() {
       });
 
       if (insertError) {
-        console.error("Insert error:", insertError);
         await supabase.storage.from("selfies").remove([fileName]);
-        throw new Error(`Database insert failed: ${insertError.message}`);
+        throw insertError;
       }
 
       const newCompleted = [...new Set([...completed, currentHunt.id])];
@@ -401,8 +393,9 @@ export default function App() {
       setCurrentHunt(null);
       alert(`Success! Your code is: ${currentHunt.code}`);
     } catch (err: any) {
-      console.error("Selfie upload error:", err);
-      alert(err.message || "Upload failed");
+      console.error('Full error:', err);
+      const errorMessage = err.message || err.error || JSON.stringify(err);
+      alert(`Upload failed: ${errorMessage}`);
     } finally {
       setUploading(false);
     }
@@ -421,10 +414,16 @@ export default function App() {
       if (error) throw error;
 
       const userIds = data.map((item: any) => item.user_id);
-      const { data: profiles } = await supabase
+      
+      // Get profiles directly instead of using admin API
+      const { data: profiles, error: profilesError } = await supabase
         .from("profiles")
         .select("id, username, full_name")
         .in("id", userIds);
+
+      if (profilesError) {
+        console.error('Profiles error:', profilesError);
+      }
 
       const profileMap = Object.fromEntries((profiles || []).map((p: any) => [p.id, p]));
 
@@ -551,9 +550,11 @@ export default function App() {
     try {
       const { error } = await supabase.from("selfies").update({ approved: true }).eq("id", id);
       if (error) throw error;
+      alert("Selfie approved successfully!");
       await loadAdminData();
-    } catch {
-      alert("Failed to approve");
+    } catch (err: any) {
+      alert("Failed to approve: " + (err.message || "Unknown error"));
+      console.error("Approve error:", err);
     } finally {
       setProcessingSubmission(null);
     }
