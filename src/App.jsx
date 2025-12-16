@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 import {
   LogOut,
@@ -109,6 +109,10 @@ export default function App() {
   const [newHuntPhoto, setNewHuntPhoto] = useState(null);
   const [creatingHunt, setCreatingHunt] = useState(false);
 
+  // Ref to prevent race conditions
+  const loadingDataRef = useRef(false);
+  const isInitialMount = useRef(true);
+
   // ─── AUTH & PROFILE AUTO-CREATE ─────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -147,38 +151,11 @@ export default function App() {
     return () => listener?.subscription.unsubscribe();
   }, []);
 
-  // ─── REALTIME SUBSCRIPTIONS ─────────────────────
-  useEffect(() => {
-    if (!session || showAdmin) return;
-
-    const huntsChannel = supabase
-      .channel("hunts-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "hunts" }, () => fetchHunts())
-      .subscribe();
-
-    const progressChannel = supabase
-      .channel("progress-changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "user_progress",
-          filter: `user_id=eq.${session.user.id}`,
-        },
-        () => loadProgressAndHunts()
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(huntsChannel);
-      supabase.removeChannel(progressChannel);
-    };
-  }, [session, showAdmin]);
-
-  // ─── LOAD DATA ─────────────────────
-  const loadProgressAndHunts = useCallback(async () => {
-    if (!session) return;
+  // ─── LOAD DATA FUNCTIONS (stable, no deps that change) ─────────────────────
+  const loadProgressAndHunts = useCallback(async (filterToApply = "All") => {
+    if (!session || loadingDataRef.current) return;
+    
+    loadingDataRef.current = true;
     
     try {
       setError("");
@@ -238,28 +215,21 @@ export default function App() {
       if (huntsError) throw huntsError;
 
       setHunts(huntsData || []);
-      // Apply filter using current activeFilter value
-      let filtered = huntsData.filter((h) => !completedIds.includes(h.id));
-      if (activeFilter !== "All") filtered = filtered.filter((h) => h.category === activeFilter);
+      
+      // Apply filter
+      let filtered = (huntsData || []).filter((h) => !completedIds.includes(h.id));
+      if (filterToApply !== "All") filtered = filtered.filter((h) => h.category === filterToApply);
       setFilteredHunts(filtered);
+      
       setDataLoaded(true);
     } catch (e) {
       console.error("Load error:", e);
       setError("Failed to load hunts. Please refresh.");
       setDataLoaded(true);
+    } finally {
+      loadingDataRef.current = false;
     }
-  }, [session, activeFilter]);
-
-  useEffect(() => {
-    if (!session) return;
-    if (showAdmin) {
-      loadAdminData();
-    } else {
-      setDataLoaded(false);
-      loadProgressAndHunts();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, showAdmin]);
+  }, [session]);
 
   const fetchHunts = useCallback(async () => {
     try {
@@ -278,7 +248,90 @@ export default function App() {
     }
   }, []);
 
-  // Apply filters whenever they change
+  const loadAdminData = useCallback(async () => {
+    try {
+      setError("");
+      const { data: allHunts, error: huntsError } = await supabase
+        .from("hunts")
+        .select("*")
+        .order("date", { ascending: false });
+      
+      if (huntsError) throw huntsError;
+      setAdminHunts(allHunts || []);
+
+      const { data: subs, error: subsError } = await supabase
+        .from("user-uploads")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (subsError) throw subsError;
+
+      const enriched = await Promise.all(
+        (subs || []).map(async (sub) => {
+          const { data: hunt } = await supabase
+            .from("hunts")
+            .select("business_name")
+            .eq("id", sub.hunt_id)
+            .single();
+          return { ...sub, hunt_name: hunt?.business_name || "Unknown", user_email: sub.user_id };
+        })
+      );
+      setSelfies(enriched);
+    } catch (e) {
+      console.error("Admin data load error:", e);
+      setError("Failed to load admin data");
+    }
+  }, []);
+
+  // ─── INITIAL LOAD ONLY ─────────────────────
+  useEffect(() => {
+    if (!session) return;
+    
+    // Only load on initial mount or when session/showAdmin changes
+    if (showAdmin) {
+      loadAdminData();
+    } else {
+      loadProgressAndHunts(activeFilter);
+    }
+  }, [session, showAdmin]); // Intentionally excluding activeFilter and loadProgressAndHunts
+
+  // ─── REALTIME SUBSCRIPTIONS (using refs to avoid recreating) ─────────────────────
+  useEffect(() => {
+    if (!session || showAdmin) return;
+
+    const huntsChannel = supabase
+      .channel("hunts-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "hunts" }, () => {
+        fetchHunts();
+      })
+      .subscribe();
+
+    const progressChannel = supabase
+      .channel("progress-changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "user_progress",
+          filter: `user_id=eq.${session.user.id}`,
+        },
+        () => {
+          // Only reload if not currently loading
+          if (!loadingDataRef.current) {
+            loadProgressAndHunts(activeFilter);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(huntsChannel);
+      supabase.removeChannel(progressChannel);
+    };
+  }, [session, showAdmin]); // activeFilter intentionally not here
+
+  // Apply filters whenever they change (separate from data loading)
   useEffect(() => {
     if (dataLoaded && hunts.length > 0) {
       let filtered = hunts.filter((h) => !completed.includes(h.id));
@@ -450,44 +503,7 @@ export default function App() {
     if (showLeaderboard) {
       loadLeaderboard();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showLeaderboard]);
-
-  // ─── ADMIN DATA ─────────────────────
-  const loadAdminData = useCallback(async () => {
-    try {
-      setError("");
-      const { data: allHunts, error: huntsError } = await supabase
-        .from("hunts")
-        .select("*")
-        .order("date", { ascending: false });
-      
-      if (huntsError) throw huntsError;
-      setAdminHunts(allHunts || []);
-
-      const { data: subs, error: subsError } = await supabase
-        .from("user-uploads")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (subsError) throw subsError;
-
-      const enriched = await Promise.all(
-        (subs || []).map(async (sub) => {
-          const { data: hunt } = await supabase
-            .from("hunts")
-            .select("business_name")
-            .eq("id", sub.hunt_id)
-            .single();
-          return { ...sub, hunt_name: hunt?.business_name || "Unknown", user_email: sub.user_id };
-        })
-      );
-      setSelfies(enriched);
-    } catch (e) {
-      console.error("Admin data load error:", e);
-      setError("Failed to load admin data");
-    }
-  }, []);
+  }, [showLeaderboard, loadLeaderboard]);
 
   // ─── CREATE HUNT ─────────────────────
   const createHunt = useCallback(async () => {
