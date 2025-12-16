@@ -17,7 +17,7 @@ const supabaseAnonKey =
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 const ADMIN_EMAIL = "quinten.geurs@gmail.com";
 
-const getSafePhotoUrl = (url: string | null): string => {
+const getSafePhotoUrl = (url) => {
   if (!url)
     return "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=800&h=600&fit=crop";
   if (
