@@ -118,30 +118,39 @@ export default function App() {
   const [newHuntPhoto, setNewHuntPhoto] = useState(null);
   const [creatingHunt, setCreatingHunt] = useState(false);
 
-  // Ref to prevent race conditions
   const loadingDataRef = useRef(false);
 
-  // ─── AUTH INITIALIZATION (FIXED) ─────────────────────
+  // ─── AUTH INITIALIZATION (RELIABLE LOCALSTORAGE FALLBACK) ─────────────────────
   useEffect(() => {
     let mounted = true;
 
-    // Get the current session immediately on mount
-    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
-      if (!mounted) return;
+    // Try to recover session synchronously from localStorage
+    const storageKey = `supabase.auth.token`;
+    const rawSession = localStorage.getItem(storageKey);
+    let recoveredSession = null;
 
-      console.log("Initial session loaded:", !!currentSession);
-      setSession(currentSession);
-
-      if (currentSession?.user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-        setIsAdmin(true);
-      } else {
-        setIsAdmin(false);
+    if (rawSession) {
+      try {
+        const parsed = JSON.parse(rawSession);
+        recoveredSession = parsed.currentSession || parsed.session || null;
+      } catch (e) {
+        console.error("Failed to parse stored auth token", e);
       }
+    }
 
-      setInitializing(false);
-    });
+    console.log("Recovered session from localStorage:", !!recoveredSession);
 
-    // Listen for any auth changes (sign in, sign out, token refresh, etc.)
+    if (recoveredSession && mounted) {
+      setSession(recoveredSession);
+      if (recoveredSession.user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+        setIsAdmin(true);
+      }
+    }
+
+    // Always finish initializing quickly
+    setInitializing(false);
+
+    // Set up listener for any future auth changes
     const {
       data: { subscription: listener },
     } = supabase.auth.onAuthStateChange(async (event, newSession) => {
@@ -158,7 +167,6 @@ export default function App() {
         setShowAdmin(false);
       }
 
-      // Clear user data on sign out
       if (!newSession) {
         setDataLoaded(false);
         setHunts([]);
@@ -166,7 +174,7 @@ export default function App() {
         setCompleted([]);
       }
 
-      // Auto-create profile on sign-in (only if needed)
+      // Auto-create profile on sign-in
       if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && newSession?.user) {
         const { data: profile } = await supabase
           .from("profiles")
@@ -202,7 +210,6 @@ export default function App() {
     try {
       setError("");
 
-      // Load progress
       const { data: progressRows, error: progressError } = await supabase
         .from("user_progress")
         .select("*")
@@ -217,7 +224,6 @@ export default function App() {
       if (progress) {
         completedIds = Array.isArray(progress.completed_hunt_ids) ? progress.completed_hunt_ids : [];
 
-        // Handle duplicate progress rows
         if (progressRows.length > 1) {
           const all = new Set();
           let maxTotal = 0,
@@ -231,7 +237,6 @@ export default function App() {
           setTotalHunts(completedIds.length);
           setStreak(maxStreak);
 
-          // Delete duplicates
           for (let i = 1; i < progressRows.length; i++) {
             await supabase.from("user_progress").delete().eq("id", progressRows[i].id);
           }
@@ -258,7 +263,6 @@ export default function App() {
         setLastActive(null);
       }
 
-      // Load all hunts
       const { data: huntsData, error: huntsError } = await supabase
         .from("hunts")
         .select("*")
@@ -282,7 +286,6 @@ export default function App() {
 
       setHunts(activeHunts);
       setDataLoaded(true);
-      console.log("Data loaded successfully:", activeHunts.length, "active hunts");
     } catch (e) {
       console.error("Load error:", e);
       setError("Failed to load hunts. Please refresh.");
@@ -319,7 +322,7 @@ export default function App() {
             .select("business_name")
             .eq("id", sub.hunt_id)
             .single();
-          return { ...sub, hunt_name: hunt?.business_name || "Unknown", user_email: sub.user_id };
+          return { ...sub, hunt_name: hunt?.business_name || "Unknown" };
         })
       );
       setSelfies(enriched);
@@ -394,7 +397,6 @@ export default function App() {
   const uploadSelfie = useCallback(async () => {
     if (!selfieFile || !currentHunt || uploading || !session) return;
 
-    // Double-check completion status
     const { data: progressCheck } = await supabase
       .from("user_progress")
       .select("completed_hunt_ids")
@@ -476,7 +478,6 @@ export default function App() {
         throw new Error(`Database insert failed: ${insertError.message}`);
       }
 
-      // Fetch latest progress
       const { data: latestProgress } = await supabase
         .from("user_progress")
         .select("*")
@@ -517,7 +518,6 @@ export default function App() {
         { onConflict: "user_id" }
       );
 
-      // Update local state
       setCompleted(newCompleted);
       setTotalHunts(newCompleted.length);
       setStreak(newStreak);
@@ -874,8 +874,6 @@ export default function App() {
   };
 
   // ─── RENDER ─────────────────────
-
-  // Admin Panel
   if (showAdmin) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50">
@@ -904,37 +902,24 @@ export default function App() {
           <div className="flex gap-8 mb-12 border-b-4 border-amber-200">
             <button
               onClick={() => setAdminTab("hunts")}
-              className={`pb-4 px-6 text-2xl font-bold ${
-                adminTab === "hunts"
-                  ? "text-amber-600 border-b-4 border-amber-600"
-                  : "text-gray-600"
-              }`}
+              className={`pb-4 px-6 text-2xl font-bold ${adminTab === "hunts" ? "text-amber-600 border-b-4 border-amber-600" : "text-gray-600"}`}
             >
               All Hunts ({adminHunts.length})
             </button>
             <button
               onClick={() => setAdminTab("selfies")}
-              className={`pb-4 px-6 text-2xl font-bold ${
-                adminTab === "selfies"
-                  ? "text-amber-600 border-b-4 border-amber-600"
-                  : "text-gray-600"
-              }`}
+              className={`pb-4 px-6 text-2xl font-bold ${adminTab === "selfies" ? "text-amber-600 border-b-4 border-amber-600" : "text-gray-600"}`}
             >
               Pending ({selfies.filter((s) => !s.approved).length})
             </button>
             <button
               onClick={() => setAdminTab("create")}
-              className={`pb-4 px-6 text-2xl font-bold ${
-                adminTab === "create"
-                  ? "text-amber-600 border-b-4 border-amber-600"
-                  : "text-gray-600"
-              }`}
+              className={`pb-4 px-6 text-2xl font-bold ${adminTab === "create" ? "text-amber-600 border-b-4 border-amber-600" : "text-gray-600"}`}
             >
               + Create Hunt
             </button>
           </div>
 
-          {/* ALL HUNTS */}
           {adminTab === "hunts" && (
             <div>
               {adminHunts.length === 0 ? (
@@ -944,10 +929,7 @@ export default function App() {
               ) : (
                 <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
                   {adminHunts.map((hunt) => (
-                    <div
-                      key={hunt.id}
-                      className="bg-white rounded-3xl shadow-2xl overflow-hidden"
-                    >
+                    <div key={hunt.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden">
                       <img
                         src={getSafePhotoUrl(hunt.photo)}
                         alt={hunt.business_name}
@@ -957,20 +939,11 @@ export default function App() {
                         <span className="inline-block px-4 py-1 bg-amber-200 text-amber-800 rounded-full text-xs font-bold mb-3">
                           {hunt.category}
                         </span>
-                        <h3 className="text-2xl font-black text-amber-900 mb-2">
-                          {hunt.business_name}
-                        </h3>
+                        <h3 className="text-2xl font-black text-amber-900 mb-2">{hunt.business_name}</h3>
                         <p className="text-gray-600 italic mb-4">"{hunt.riddle}"</p>
-                        <p className="text-sm">
-                          <strong>Code:</strong> {hunt.code}
-                        </p>
-                        <p className="text-sm">
-                          <strong>Date:</strong>{" "}
-                          {new Date(hunt.date).toLocaleDateString()}
-                        </p>
-                        <p className="text-sm mb-4">
-                          <strong>Radius:</strong> {hunt.radius}m
-                        </p>
+                        <p className="text-sm"><strong>Code:</strong> {hunt.code}</p>
+                        <p className="text-sm"><strong>Date:</strong> {new Date(hunt.date).toLocaleDateString()}</p>
+                        <p className="text-sm mb-4"><strong>Radius:</strong> {hunt.radius}m</p>
                         <div className="flex gap-3">
                           <button
                             onClick={() => startEditHunt(hunt)}
@@ -993,33 +966,19 @@ export default function App() {
             </div>
           )}
 
-          {/* SELFIES */}
           {adminTab === "selfies" && (
             <>
               {selfies.filter((s) => !s.approved).length === 0 ? (
-                <p className="text-center text-gray-600 text-xl py-12">
-                  No pending selfies
-                </p>
+                <p className="text-center text-gray-600 text-xl py-12">No pending selfies</p>
               ) : (
                 selfies
                   .filter((s) => !s.approved)
                   .map((sub) => (
-                    <div
-                      key={sub.id}
-                      className="bg-white rounded-3xl shadow-2xl flex flex-col lg:flex-row mb-8"
-                    >
-                      <img
-                        src={sub.image_url}
-                        alt="Selfie"
-                        className="w-full lg:w-96 h-96 object-cover"
-                      />
+                    <div key={sub.id} className="bg-white rounded-3xl shadow-2xl flex flex-col lg:flex-row mb-8">
+                      <img src={sub.image_url} alt="Selfie" className="w-full lg:w-96 h-96 object-cover" />
                       <div className="p-8 flex-1 flex flex-col justify-center">
-                        <p className="text-xl mb-2">
-                          <strong>User ID:</strong> {sub.user_id.slice(0, 8)}...
-                        </p>
-                        <p className="text-xl mb-2">
-                          <strong>Hunt:</strong> {sub.hunt_name}
-                        </p>
+                        <p className="text-xl mb-2"><strong>User ID:</strong> {sub.user_id.slice(0, 8)}...</p>
+                        <p className="text-xl mb-2"><strong>Hunt:</strong> {sub.hunt_name}</p>
                         <p className="text-sm text-gray-600 mb-8">
                           Submitted: {new Date(sub.created_at).toLocaleString()}
                         </p>
@@ -1033,10 +992,7 @@ export default function App() {
                                 : "bg-green-600 hover:bg-green-700 text-white"
                             }`}
                           >
-                            <Check size={24} />{" "}
-                            {processingSubmission === sub.id
-                              ? "Processing..."
-                              : "Approve"}
+                            <Check size={24} /> {processingSubmission === sub.id ? "Processing..." : "Approve"}
                           </button>
                           <button
                             onClick={() => rejectSelfie(sub.id)}
@@ -1047,10 +1003,7 @@ export default function App() {
                                 : "bg-red-600 hover:bg-red-700 text-white"
                             }`}
                           >
-                            <X size={24} />{" "}
-                            {processingSubmission === sub.id
-                              ? "Processing..."
-                              : "Reject"}
+                            <X size={24} /> {processingSubmission === sub.id ? "Processing..." : "Reject"}
                           </button>
                         </div>
                       </div>
@@ -1060,33 +1013,17 @@ export default function App() {
             </>
           )}
 
-          {/* CREATE HUNT */}
           {adminTab === "create" && (
             <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-4xl mx-auto">
-              <h2 className="text-4xl font-black text-amber-900 mb-10 text-center">
-                Create New Hunt
-              </h2>
+              <h2 className="text-4xl font-black text-amber-900 mb-10 text-center">Create New Hunt</h2>
               <div className="grid md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Active From Date
-                  </label>
-                  <input
-                    type="date"
-                    value={newHuntDate}
-                    onChange={(e) => setNewHuntDate(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Active From Date</label>
+                  <input type="date" value={newHuntDate} onChange={(e) => setNewHuntDate(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Category
-                  </label>
-                  <select
-                    value={newHuntCategory}
-                    onChange={(e) => setNewHuntCategory(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl"
-                  >
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Category</label>
+                  <select value={newHuntCategory} onChange={(e) => setNewHuntCategory(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl">
                     <option value="">Select category</option>
                     <option>Café</option>
                     <option>Barber</option>
@@ -1097,98 +1034,36 @@ export default function App() {
                   </select>
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Business Name *
-                  </label>
-                  <input
-                    type="text"
-                    value={newHuntBusinessName}
-                    onChange={(e) => setNewHuntBusinessName(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl"
-                    placeholder="e.g. Brew Coffee House"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Business Name *</label>
+                  <input type="text" value={newHuntBusinessName} onChange={(e) => setNewHuntBusinessName(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. Brew Coffee House" />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Riddle / Clue *
-                  </label>
-                  <textarea
-                    value={newHuntRiddle}
-                    onChange={(e) => setNewHuntRiddle(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl h-32"
-                    placeholder="Write an intriguing riddle..."
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Riddle / Clue *</label>
+                  <textarea value={newHuntRiddle} onChange={(e) => setNewHuntRiddle(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl h-32" placeholder="Write an intriguing riddle..." />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Secret Code *
-                  </label>
-                  <input
-                    type="text"
-                    value={newHuntCode}
-                    onChange={(e) => setNewHuntCode(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl"
-                    placeholder="e.g. BREW2025"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Secret Code *</label>
+                  <input type="text" value={newHuntCode} onChange={(e) => setNewHuntCode(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. BREW2025" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Discount / Reward
-                  </label>
-                  <input
-                    type="text"
-                    value={newHuntDiscount}
-                    onChange={(e) => setNewHuntDiscount(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl"
-                    placeholder="e.g. Free coffee"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Discount / Reward</label>
+                  <input type="text" value={newHuntDiscount} onChange={(e) => setNewHuntDiscount(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. Free coffee" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Latitude *
-                  </label>
-                  <input
-                    type="text"
-                    value={newHuntLat}
-                    onChange={(e) => setNewHuntLat(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl"
-                    placeholder="e.g. 51.5074"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Latitude *</label>
+                  <input type="text" value={newHuntLat} onChange={(e) => setNewHuntLat(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. 51.5074" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Longitude *
-                  </label>
-                  <input
-                    type="text"
-                    value={newHuntLon}
-                    onChange={(e) => setNewHuntLon(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl"
-                    placeholder="e.g. -0.1278"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Longitude *</label>
+                  <input type="text" value={newHuntLon} onChange={(e) => setNewHuntLon(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. -0.1278" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Radius (meters)
-                  </label>
-                  <input
-                    type="number"
-                    value={newHuntRadius}
-                    onChange={(e) => setNewHuntRadius(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl"
-                    placeholder="50"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Radius (meters)</label>
+                  <input type="number" value={newHuntRadius} onChange={(e) => setNewHuntRadius(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="50" />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Hunt Photo
-                  </label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => setNewHuntPhoto(e.target.files?.[0] || null)}
-                    className="w-full p-5 border-2 border-dashed border-amber-300 rounded-2xl bg-amber-50"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Hunt Photo</label>
+                  <input type="file" accept="image/*" onChange={(e) => setNewHuntPhoto(e.target.files?.[0] || null)} className="w-full p-5 border-2 border-dashed border-amber-300 rounded-2xl bg-amber-50" />
                 </div>
               </div>
               <button
@@ -1202,7 +1077,6 @@ export default function App() {
           )}
         </div>
 
-        {/* EDIT HUNT MODAL */}
         {showEditModal && editingHunt && (
           <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-6 overflow-y-auto">
             <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-4xl w-full my-8">
@@ -1219,27 +1093,15 @@ export default function App() {
                   ×
                 </button>
               </div>
+              {/* Edit form - same as create form */}
               <div className="grid md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Active From Date
-                  </label>
-                  <input
-                    type="date"
-                    value={newHuntDate}
-                    onChange={(e) => setNewHuntDate(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Active From Date</label>
+                  <input type="date" value={newHuntDate} onChange={(e) => setNewHuntDate(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Category
-                  </label>
-                  <select
-                    value={newHuntCategory}
-                    onChange={(e) => setNewHuntCategory(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl"
-                  >
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Category</label>
+                  <select value={newHuntCategory} onChange={(e) => setNewHuntCategory(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl">
                     <option value="">Select category</option>
                     <option>Café</option>
                     <option>Barber</option>
@@ -1250,110 +1112,42 @@ export default function App() {
                   </select>
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Business Name *
-                  </label>
-                  <input
-                    type="text"
-                    value={newHuntBusinessName}
-                    onChange={(e) => setNewHuntBusinessName(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl"
-                    placeholder="e.g. Brew Coffee House"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Business Name *</label>
+                  <input type="text" value={newHuntBusinessName} onChange={(e) => setNewHuntBusinessName(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Riddle / Clue *
-                  </label>
-                  <textarea
-                    value={newHuntRiddle}
-                    onChange={(e) => setNewHuntRiddle(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl h-32"
-                    placeholder="Write an intriguing riddle..."
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Riddle / Clue *</label>
+                  <textarea value={newHuntRiddle} onChange={(e) => setNewHuntRiddle(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl h-32" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Secret Code *
-                  </label>
-                  <input
-                    type="text"
-                    value={newHuntCode}
-                    onChange={(e) => setNewHuntCode(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl"
-                    placeholder="e.g. BREW2025"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Secret Code *</label>
+                  <input type="text" value={newHuntCode} onChange={(e) => setNewHuntCode(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Discount / Reward
-                  </label>
-                  <input
-                    type="text"
-                    value={newHuntDiscount}
-                    onChange={(e) => setNewHuntDiscount(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl"
-                    placeholder="e.g. Free coffee"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Discount / Reward</label>
+                  <input type="text" value={newHuntDiscount} onChange={(e) => setNewHuntDiscount(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Latitude *
-                  </label>
-                  <input
-                    type="text"
-                    value={newHuntLat}
-                    onChange={(e) => setNewHuntLat(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl"
-                    placeholder="e.g. 51.5074"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Latitude *</label>
+                  <input type="text" value={newHuntLat} onChange={(e) => setNewHuntLat(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Longitude *
-                  </label>
-                  <input
-                    type="text"
-                    value={newHuntLon}
-                    onChange={(e) => setNewHuntLon(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl"
-                    placeholder="e.g. -0.1278"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Longitude *</label>
+                  <input type="text" value={newHuntLon} onChange={(e) => setNewHuntLon(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Radius (meters)
-                  </label>
-                  <input
-                    type="number"
-                    value={newHuntRadius}
-                    onChange={(e) => setNewHuntRadius(e.target.value)}
-                    className="w-full p-5 border-2 border-amber-200 rounded-2xl"
-                    placeholder="50"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Radius (meters)</label>
+                  <input type="number" value={newHuntRadius} onChange={(e) => setNewHuntRadius(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Hunt Photo (leave empty to keep current)
-                  </label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Hunt Photo (leave empty to keep current)</label>
                   {editingHunt.photo && !newHuntPhoto && (
                     <div className="mb-4">
-                      <img
-                        src={getSafePhotoUrl(editingHunt.photo)}
-                        alt="Current"
-                        className="w-full h-48 object-cover rounded-xl"
-                      />
-                      <p className="text-sm text-gray-600 mt-2">
-                        Current photo (will be kept if you don't upload a new one)
-                      </p>
+                      <img src={getSafePhotoUrl(editingHunt.photo)} alt="Current" className="w-full h-48 object-cover rounded-xl" />
+                      <p className="text-sm text-gray-600 mt-2">Current photo</p>
                     </div>
                   )}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => setNewHuntPhoto(e.target.files?.[0] || null)}
-                    className="w-full p-5 border-2 border-dashed border-amber-300 rounded-2xl bg-amber-50"
-                  />
+                  <input type="file" accept="image/*" onChange={(e) => setNewHuntPhoto(e.target.files?.[0] || null)} className="w-full p-5 border-2 border-dashed border-amber-300 rounded-2xl bg-amber-50" />
                 </div>
               </div>
               <div className="flex gap-4 mt-10">
@@ -1382,7 +1176,6 @@ export default function App() {
     );
   }
 
-  // Initializing screen
   if (initializing) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50 flex items-center justify-center">
@@ -1394,15 +1187,12 @@ export default function App() {
     );
   }
 
-  // Login screen
   if (!session) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50 flex items-center justify-center px-6">
         <div className="bg-white rounded-3xl shadow-2xl p-12 max-w-md w-full text-center">
           <h1 className="text-6xl font-black text-amber-900 mb-4">Brew Hunt</h1>
-          <p className="text-xl text-amber-800 mb-12">
-            Real-world treasure hunts in Hackney
-          </p>
+          <p className="text-xl text-amber-800 mb-12">Real-world treasure hunts in Hackney</p>
 
           {authError && (
             <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4 mb-6 flex items-start gap-3">
@@ -1411,33 +1201,12 @@ export default function App() {
             </div>
           )}
 
-          <input
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full p-5 mb-4 border-2 border-amber-200 rounded-2xl text-lg"
-          />
-          <input
-            type="password"
-            placeholder="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyPress={(e) => e.key === "Enter" && signIn()}
-            className="w-full p-5 mb-8 border-2 border-amber-200 rounded-2xl text-lg"
-          />
-          <button
-            onClick={signUp}
-            disabled={loading}
-            className="w-full bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white py-6 rounded-2xl font-bold text-2xl shadow-lg mb-4"
-          >
+          <input type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full p-5 mb-4 border-2 border-amber-200 rounded-2xl text-lg" />
+          <input type="password" placeholder="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyPress={(e) => e.key === "Enter" && signIn()} className="w-full p-5 mb-8 border-2 border-amber-200 rounded-2xl text-lg" />
+          <button onClick={signUp} disabled={loading} className="w-full bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white py-6 rounded-2xl font-bold text-2xl shadow-lg mb-4">
             {loading ? "Creating..." : "Sign Up Free"}
           </button>
-          <button
-            onClick={signIn}
-            disabled={loading}
-            className="w-full bg-gray-700 hover:bg-gray-800 disabled:opacity-60 text-white py-6 rounded-2xl font-bold text-2xl shadow-lg"
-          >
+          <button onClick={signIn} disabled={loading} className="w-full bg-gray-700 hover:bg-gray-800 disabled:opacity-60 text-white py-6 rounded-2xl font-bold text-2xl shadow-lg">
             {loading ? "Signing In..." : "Log In"}
           </button>
         </div>
@@ -1445,7 +1214,6 @@ export default function App() {
     );
   }
 
-  // Loading hunts screen (after login)
   if (!dataLoaded) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50 flex items-center justify-center">
@@ -1460,43 +1228,31 @@ export default function App() {
   const activeHuntsCount = hunts.filter((h) => !completed.includes(h.id)).length;
   const completedHunts = hunts.filter((h) => completed.includes(h.id));
 
-  // Main app
   return (
     <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50">
-      {/* HEADER */}
       <div className="bg-white/80 backdrop-blur-lg shadow-lg p-6 sticky top-0 z-40">
         <div className="max-w-md mx-auto flex justify-between items-center">
           <h1 className="text-4xl font-black text-amber-900">Brew Hunt</h1>
           <div className="flex items-center gap-4">
             {isAdmin && (
-              <button
-                onClick={() => setShowAdmin(true)}
-                className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-full font-bold flex items-center gap-2 shadow-lg"
-              >
+              <button onClick={() => setShowAdmin(true)} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-full font-bold flex items-center gap-2 shadow-lg">
                 <Shield size={20} /> Admin
               </button>
             )}
-            <button
-              onClick={signOut}
-              className="text-gray-600 hover:text-gray-800 flex items-center gap-2"
-            >
+            <button onClick={signOut} className="text-gray-600 hover:text-gray-800 flex items-center gap-2">
               <LogOut size={20} /> Log Out
             </button>
           </div>
         </div>
       </div>
 
-      {/* ERROR BANNER */}
       {error && (
         <div className="max-w-md mx-auto px-6 pt-6">
           <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4 flex items-start gap-3">
             <AlertCircle className="text-red-600 flex-shrink-0 mt-1" size={20} />
             <div className="flex-1">
               <p className="text-red-700">{error}</p>
-              <button
-                onClick={() => setError("")}
-                className="text-red-800 underline text-sm mt-1 font-bold"
-              >
+              <button onClick={() => setError("")} className="text-red-800 underline text-sm mt-1 font-bold">
                 Dismiss
               </button>
             </div>
@@ -1504,7 +1260,6 @@ export default function App() {
         </div>
       )}
 
-      {/* STATS */}
       <div className="max-w-md mx-auto p-6">
         <div className="bg-white rounded-3xl shadow-2xl p-8 text-center">
           <div className="flex justify-between items-center">
@@ -1525,7 +1280,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* FILTERS */}
       <div className="max-w-md mx-auto px-6">
         <div className="flex flex-wrap gap-3 justify-center mb-8">
           {["All", "Café", "Barber", "Restaurant", "Gig", "Museum"].map((cat) => (
@@ -1552,7 +1306,6 @@ export default function App() {
           </button>
         </div>
 
-        {/* HUNTS LIST */}
         <div className="space-y-8 pb-24">
           {filteredHunts.length === 0 ? (
             <div className="text-center py-12 bg-white rounded-3xl shadow-xl p-8">
@@ -1563,10 +1316,7 @@ export default function App() {
             </div>
           ) : (
             filteredHunts.map((hunt) => (
-              <div
-                key={hunt.id}
-                className="bg-white rounded-3xl shadow-2xl overflow-hidden hover:shadow-3xl transition"
-              >
+              <div key={hunt.id} className="bg-white rounded-3xl shadow-2xl overflow-hidden hover:shadow-3xl transition">
                 <div className="relative">
                   <img
                     src={getSafePhotoUrl(hunt.photo)}
@@ -1579,13 +1329,9 @@ export default function App() {
                     {hunt.category}
                   </span>
                   <p className="text-2xl font-bold mb-4 text-gray-800">{hunt.riddle}</p>
-                  <p className="text-xl font-medium text-gray-700 mb-2">
-                    {hunt.business_name}
-                  </p>
+                  <p className="text-xl font-medium text-gray-700 mb-2">{hunt.business_name}</p>
                   {hunt.discount && (
-                    <p className="text-lg text-green-600 font-semibold mb-8">
-                      Gift: {hunt.discount}
-                    </p>
+                    <p className="text-lg text-green-600 font-semibold mb-8">Gift: {hunt.discount}</p>
                   )}
                   <button
                     onClick={() => {
@@ -1603,7 +1349,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* COMPLETED HUNTS MODAL */}
       {showCompletedModal && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-6">
           <div className="bg-white rounded-3xl shadow-2xl p-12 max-w-md w-full text-center relative max-h-[90vh] overflow-y-auto">
@@ -1618,29 +1363,20 @@ export default function App() {
               Your Completed Hunts ({totalHunts})
             </h2>
             {completedHunts.length === 0 ? (
-              <p className="text-gray-600 text-xl">
-                No completed hunts yet — get hunting!
-              </p>
+              <p className="text-gray-600 text-xl">No completed hunts yet — get hunting!</p>
             ) : (
               <div className="space-y-8">
                 {completedHunts.map((hunt) => (
-                  <div
-                    key={hunt.id}
-                    className="bg-gray-50 rounded-2xl p-6 text-left"
-                  >
+                  <div key={hunt.id} className="bg-gray-50 rounded-2xl p-6 text-left">
                     <img
                       src={getSafePhotoUrl(hunt.photo)}
                       alt="Hunt"
                       className="w-full h-48 object-cover rounded-xl mb-4"
                     />
-                    <p className="text-xl font-bold text-gray-800 mb-2">
-                      {hunt.riddle}
-                    </p>
+                    <p className="text-xl font-bold text-gray-800 mb-2">{hunt.riddle}</p>
                     <p className="text-lg text-gray-700 mb-2">{hunt.business_name}</p>
                     <div className="bg-green-100 rounded-xl p-4 mt-4">
-                      <p className="text-sm text-green-800 font-semibold mb-1">
-                        Your code:
-                      </p>
+                      <p className="text-sm text-green-800 font-semibold mb-1">Your code:</p>
                       <p className="text-green-600 font-black text-2xl">{hunt.code}</p>
                     </div>
                   </div>
@@ -1651,7 +1387,6 @@ export default function App() {
         </div>
       )}
 
-      {/* SELFIE MODAL */}
       {showModal && currentHunt && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-6">
           <div className="bg-white rounded-3xl shadow-2xl p-12 max-w-md w-full text-center relative">
@@ -1665,15 +1400,9 @@ export default function App() {
             >
               ×
             </button>
-            <h3 className="text-4xl font-black text-gray-800 mb-4">
-              Show the logo!
-            </h3>
-            <p className="text-xl text-gray-600 mb-2">
-              Take a selfie with the business logo
-            </p>
-            <p className="text-lg text-amber-600 font-bold mb-10">
-              Win £50 weekly for best selfie!
-            </p>
+            <h3 className="text-4xl font-black text-gray-800 mb-4">Show the logo!</h3>
+            <p className="text-xl text-gray-600 mb-2">Take a selfie with the business logo</p>
+            <p className="text-lg text-amber-600 font-bold mb-10">Win £50 weekly for best selfie!</p>
 
             {selfieFile && (
               <div className="mb-6 p-4 bg-green-50 rounded-2xl">
@@ -1703,14 +1432,11 @@ export default function App() {
             >
               {uploading ? "Uploading..." : "Submit & Unlock Code"}
             </button>
-            <p className="text-sm text-gray-500 mt-4">
-              Location will be verified automatically
-            </p>
+            <p className="text-sm text-gray-500 mt-4">Location will be verified automatically</p>
           </div>
         </div>
       )}
 
-      {/* LEADERBOARD MODAL */}
       {showLeaderboard && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-6">
           <div className="bg-white rounded-3xl shadow-2xl p-12 max-w-md w-full text-center relative">
@@ -1721,9 +1447,7 @@ export default function App() {
               ×
             </button>
             <Trophy className="w-16 h-16 text-amber-600 mx-auto mb-6" />
-            <h2 className="text-4xl font-black text-amber-900 mb-10">
-              Hackney Top Hunters
-            </h2>
+            <h2 className="text-4xl font-black text-amber-900 mb-10">Hackney Top Hunters</h2>
 
             {loadingLeaderboard ? (
               <div className="py-12">
@@ -1737,31 +1461,19 @@ export default function App() {
                   <div
                     key={idx}
                     className={`p-6 rounded-2xl ${
-                      idx === 0
-                        ? "bg-amber-100"
-                        : idx === 1
-                        ? "bg-gray-100"
-                        : idx === 2
-                        ? "bg-orange-50"
-                        : "bg-gray-50"
+                      idx === 0 ? "bg-amber-100" : idx === 1 ? "bg-gray-100" : idx === 2 ? "bg-orange-50" : "bg-gray-50"
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-4">
-                        <span className="text-3xl font-black text-gray-700">
-                          #{idx + 1}
-                        </span>
+                        <span className="text-3xl font-black text-gray-700">#{idx + 1}</span>
                         <div>
-                          <p className="font-bold text-xl text-gray-800">
-                            {user.displayName}
-                          </p>
+                          <p className="font-bold text-xl text-gray-800">{user.displayName}</p>
                           <p className="text-sm text-gray-600">{user.tier}</p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="text-2xl font-black text-amber-600">
-                          {user.hunts}
-                        </p>
+                        <p className="text-2xl font-black text-amber-600">{user.hunts}</p>
                         <p className="text-sm text-gray-600">hunts</p>
                       </div>
                     </div>
