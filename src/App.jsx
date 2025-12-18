@@ -129,12 +129,13 @@ export default function App() {
   useEffect(() => {
     let mounted = true;
     let timeoutId;
+    let hasReceivedAuthEvent = false;
 
     // Set a safety timeout to ensure initialization completes
-    // The auth listener will handle the actual session
     timeoutId = setTimeout(() => {
-      if (mounted) {
-        console.log("Safety timeout - marking initialization complete");
+      if (mounted && !hasReceivedAuthEvent) {
+        console.log("Safety timeout - no auth event received, marking initialization complete with no session");
+        setSession(null);
         setInitializing(false);
       }
     }, 3000);
@@ -143,6 +144,8 @@ export default function App() {
 
     const { data: listener } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       console.log("Auth state change:", event, "Session:", !!newSession);
+      
+      hasReceivedAuthEvent = true;
       
       if (!mounted) {
         console.log("Component unmounted, ignoring auth change");
