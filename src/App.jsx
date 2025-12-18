@@ -117,10 +117,23 @@ export default function App() {
   // ─── AUTH & PROFILE AUTO-CREATE ─────────────────────
   useEffect(() => {
     let mounted = true;
+    let timeoutId;
 
     const initAuth = async () => {
       try {
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        // Set timeout to prevent infinite initialization
+        timeoutId = setTimeout(() => {
+          if (mounted && initializing) {
+            console.warn("Auth initialization timeout - proceeding anyway");
+            setInitializing(false);
+          }
+        }, 5000); // 5 second timeout
+
+        const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.error("Session error:", sessionError);
+        }
         
         if (mounted) {
           setSession(currentSession);
@@ -128,15 +141,20 @@ export default function App() {
             setIsAdmin(true);
           }
           setInitializing(false);
+          clearTimeout(timeoutId);
         }
 
         // Create profile if needed
-        if (currentSession) {
-          const { data: profile } = await supabase
+        if (currentSession && mounted) {
+          const { data: profile, error: profileError } = await supabase
             .from("profiles")
             .select("id")
             .eq("id", currentSession.user.id)
             .single();
+
+          if (profileError && profileError.code !== 'PGRST116') {
+            console.error("Profile check error:", profileError);
+          }
 
           if (!profile && mounted) {
             await supabase.from("profiles").insert({
@@ -150,6 +168,7 @@ export default function App() {
         console.error("Auth initialization error:", err);
         if (mounted) {
           setInitializing(false);
+          clearTimeout(timeoutId);
         }
       }
     };
@@ -194,6 +213,7 @@ export default function App() {
 
     return () => {
       mounted = false;
+      clearTimeout(timeoutId);
       listener?.subscription.unsubscribe();
     };
   }, []);
