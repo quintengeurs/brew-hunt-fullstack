@@ -222,23 +222,34 @@ export default function App() {
 
     initAuth();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
-      if (!mounted) return;
-
-      setSession(newSession);
-      if (newSession?.user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-        setIsAdmin(true);
-      } else {
-        setIsAdmin(false);
-        setShowAdmin(false);
+    const { data: listener } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      console.log("Auth state change:", event, "Session:", !!newSession, newSession);
+      
+      if (!mounted) {
+        console.log("Component unmounted, ignoring auth change");
+        return;
       }
 
-      if (newSession) {
+      // Validate the session has required data
+      const isValidSession = newSession && newSession.user && newSession.access_token;
+      
+      console.log("Auth listener - Valid session:", isValidSession);
+      
+      if (isValidSession) {
+        setSession(newSession);
+        if (newSession.user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+          setIsAdmin(true);
+        } else {
+          setIsAdmin(false);
+          setShowAdmin(false);
+        }
+
+        // Create profile if needed
         const { data: profile } = await supabase
           .from("profiles")
           .select("id")
           .eq("id", newSession.user.id)
-          .single();
+          .maybeSingle();
 
         if (!profile && mounted) {
           await supabase.from("profiles").insert({
@@ -247,10 +258,12 @@ export default function App() {
             full_name: newSession.user.user_metadata.full_name || null,
           });
         }
-      }
-
-      // Reset data when logging out
-      if (!newSession) {
+      } else {
+        // No valid session - clear everything
+        console.log("No valid session, clearing state");
+        setSession(null);
+        setIsAdmin(false);
+        setShowAdmin(false);
         setDataLoaded(false);
         setHunts([]);
         setFilteredHunts([]);
