@@ -129,95 +129,27 @@ export default function App() {
   useEffect(() => {
     let mounted = true;
     let timeoutId;
-    let sessionResolved = false;
 
-    const initAuth = async () => {
-      try {
-        console.log("Auth init: Starting");
-        
-        // Set aggressive timeout
-        timeoutId = setTimeout(() => {
-          if (mounted && !sessionResolved) {
-            console.warn("Auth timeout - checking if auth listener already handled it");
-            // Don't clear session if auth listener already set it
-            // Just mark initialization as complete
-            setInitializing(false);
-            sessionResolved = true;
-          }
-        }, 2000); // 2 second timeout
-
-        // Try to get session, but don't wait forever
-        const sessionPromise = supabase.auth.getSession();
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Session fetch timeout')), 2500)
-        );
-
-        const result = await Promise.race([sessionPromise, timeoutPromise])
-          .catch(err => {
-            console.error("Session fetch failed:", err);
-            return { data: { session: null }, error: err };
-          });
-
-        sessionResolved = true;
-        clearTimeout(timeoutId);
-        
-        const currentSession = result?.data?.session;
-        
-        if (!mounted) return;
-        
-        console.log("Auth init: Got session:", !!currentSession);
-        setSession(currentSession);
-        
-        if (currentSession?.user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-          setIsAdmin(true);
-        }
+    // Set a safety timeout to ensure initialization completes
+    // The auth listener will handle the actual session
+    timeoutId = setTimeout(() => {
+      if (mounted) {
+        console.log("Safety timeout - marking initialization complete");
         setInitializing(false);
-
-        // Create profile if needed - but don't block on it
-        if (currentSession) {
-          supabase
-            .from("profiles")
-            .select("id")
-            .eq("id", currentSession.user.id)
-            .maybeSingle()
-            .then(({ data: profile, error }) => {
-              if (error) console.error("Profile check error:", error);
-              
-              if (!profile && mounted) {
-                supabase.from("profiles").insert({
-                  id: currentSession.user.id,
-                  username: currentSession.user.email?.split("@")[0] || `hunter_${Date.now().toString(36)}`,
-                  full_name: currentSession.user.user_metadata.full_name || null,
-                }).then(({ error: insertError }) => {
-                  if (insertError) console.error("Profile creation error:", insertError);
-                });
-              }
-            })
-            .catch(err => console.error("Profile operation failed:", err));
-        }
-      } catch (err) {
-        console.error("Auth initialization error:", err);
-        if (mounted) {
-          setSession(null);
-          setInitializing(false);
-          clearTimeout(timeoutId);
-          sessionResolved = true;
-        }
       }
-    };
+    }, 3000);
 
-    initAuth();
+    console.log("Auth init: Setting up listener (will rely on onAuthStateChange)");
 
     const { data: listener } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-      console.log("Auth state change:", event, "Session:", !!newSession, newSession);
+      console.log("Auth state change:", event, "Session:", !!newSession);
       
       if (!mounted) {
         console.log("Component unmounted, ignoring auth change");
         return;
       }
 
-      // Mark that we got a response from auth
-      sessionResolved = true;
+      // Clear the safety timeout since we got a response
       clearTimeout(timeoutId);
 
       // Validate the session has required data
@@ -227,7 +159,7 @@ export default function App() {
       
       if (isValidSession) {
         setSession(newSession);
-        setInitializing(false); // Mark initialization complete
+        setInitializing(false);
         
         if (newSession.user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
           setIsAdmin(true);
@@ -254,7 +186,7 @@ export default function App() {
         // No valid session - clear everything
         console.log("No valid session, clearing state");
         setSession(null);
-        setInitializing(false); // Mark initialization complete
+        setInitializing(false);
         setIsAdmin(false);
         setShowAdmin(false);
         setDataLoaded(false);
