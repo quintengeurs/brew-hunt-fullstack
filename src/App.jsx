@@ -29,12 +29,7 @@ const getSafePhotoUrl = (url) => {
   return "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=800&h=600&fit=crop";
 };
 
-function calculateDistance(
-  lat1,
-  lon1,
-  lat2,
-  lon2
-) {
+function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
@@ -193,7 +188,7 @@ export default function App() {
 
   const loadProgressAndHunts = useCallback(async () => {
     if (!session) return;
-    
+
     try {
       setError("");
 
@@ -322,23 +317,22 @@ export default function App() {
         return;
       }
 
-      // Enhanced file validation
       const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
       if (!allowedTypes.includes(selfieFile.type)) {
         throw new Error('Invalid file type. Please upload a JPG, PNG, or WebP image.');
       }
 
-      // Check file size (max 5MB)
       if (selfieFile.size > 5 * 1024 * 1024) {
         throw new Error('File too large. Maximum size is 5MB.');
       }
 
       const fileExt = selfieFile.name.split(".").pop()?.toLowerCase() || "jpg";
-      const fileName = `${session.user.id}/${currentHunt.id}_${Date.now()}.${fileExt}`;
+      const fileName = `${currentHunt.id}_${Date.now()}.${fileExt}`;
+      const filePath = `${session.user.id}/${fileName}`;
 
-      const { error: uploadError, data: uploadData } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from("selfies")
-        .upload(fileName, selfieFile, {
+        .upload(filePath, selfieFile, {
           cacheControl: '3600',
           upsert: false
         });
@@ -350,7 +344,7 @@ export default function App() {
 
       const { data: { publicUrl } } = supabase.storage
         .from("selfies")
-        .getPublicUrl(fileName);
+        .getPublicUrl(filePath);
 
       const { error: insertError } = await supabase.from("selfies").insert({
         user_id: session.user.id,
@@ -360,7 +354,7 @@ export default function App() {
 
       if (insertError) {
         console.error("Insert error:", insertError);
-        await supabase.storage.from("selfies").remove([fileName]);
+        await supabase.storage.from("selfies").remove([filePath]);
         throw new Error(`Database insert failed: ${insertError.message}`);
       }
 
@@ -396,7 +390,7 @@ export default function App() {
       alert(`Success! Your code is: ${currentHunt.code}`);
     } catch (err) {
       console.error("Selfie upload error:", err);
-      alert(err.message || "Upload failed");
+      alert(err.message || "Upload failed – check console for details");
     } finally {
       setUploading(false);
     }
@@ -657,7 +651,7 @@ export default function App() {
 
   const deleteHunt = useCallback(async (id: string) => {
     if (!window.confirm("Are you sure you want to delete this hunt? This cannot be undone.")) return;
-    
+
     try {
       const { error } = await supabase.from("hunts").delete().eq("id", id);
       if (error) throw error;
@@ -904,103 +898,103 @@ export default function App() {
               </button>
             </div>
           )}
-        </div>
 
-        {/* EDIT HUNT MODAL */}
-        {showEditModal && editingHunt && (
-          <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-6 overflow-y-auto">
-            <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-4xl w-full my-8">
-              <div className="flex justify-between items-center mb-8">
-                <h2 className="text-4xl font-black text-amber-900">Edit Hunt</h2>
-                <button
-                  onClick={() => {
-                    setShowEditModal(false);
-                    setEditingHunt(null);
-                    setNewHuntPhoto(null);
-                  }}
-                  className="text-4xl text-gray-500 hover:text-gray-700"
-                >
-                  ×
-                </button>
-              </div>
-              <div className="grid md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Active From Date</label>
-                  <input type="date" value={newHuntDate} onChange={(e) => setNewHuntDate(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" />
+          {/* EDIT HUNT MODAL */}
+          {showEditModal && editingHunt && (
+            <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-6 overflow-y-auto">
+              <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-4xl w-full my-8">
+                <div className="flex justify-between items-center mb-8">
+                  <h2 className="text-4xl font-black text-amber-900">Edit Hunt</h2>
+                  <button
+                    onClick={() => {
+                      setShowEditModal(false);
+                      setEditingHunt(null);
+                      setNewHuntPhoto(null);
+                    }}
+                    className="text-4xl text-gray-500 hover:text-gray-700"
+                  >
+                    ×
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Category</label>
-                  <select value={newHuntCategory} onChange={(e) => setNewHuntCategory(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl">
-                    <option value="">Select category</option>
-                    <option>Café</option>
-                    <option>Barber</option>
-                    <option>Restaurant</option>
-                    <option>Gig</option>
-                    <option>Museum</option>
-                    <option>Food & Drink</option>
-                  </select>
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Active From Date</label>
+                    <input type="date" value={newHuntDate} onChange={(e) => setNewHuntDate(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Category</label>
+                    <select value={newHuntCategory} onChange={(e) => setNewHuntCategory(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl">
+                      <option value="">Select category</option>
+                      <option>Café</option>
+                      <option>Barber</option>
+                      <option>Restaurant</option>
+                      <option>Gig</option>
+                      <option>Museum</option>
+                      <option>Food & Drink</option>
+                    </select>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Business Name *</label>
+                    <input type="text" value={newHuntBusinessName} onChange={(e) => setNewHuntBusinessName(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. Brew Coffee House" />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Riddle / Clue *</label>
+                    <textarea value={newHuntRiddle} onChange={(e) => setNewHuntRiddle(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl h-32" placeholder="Write an intriguing riddle..." />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Secret Code *</label>
+                    <input type="text" value={newHuntCode} onChange={(e) => setNewHuntCode(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. BREW2025" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Discount / Reward</label>
+                    <input type="text" value={newHuntDiscount} onChange={(e) => setNewHuntDiscount(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. Free coffee" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Latitude *</label>
+                    <input type="text" value={newHuntLat} onChange={(e) => setNewHuntLat(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. 51.5074" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Longitude *</label>
+                    <input type="text" value={newHuntLon} onChange={(e) => setNewHuntLon(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. -0.1278" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Radius (meters)</label>
+                    <input type="number" value={newHuntRadius} onChange={(e) => setNewHuntRadius(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="50" />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Hunt Photo (leave empty to keep current)</label>
+                    {editingHunt.photo && !newHuntPhoto && (
+                      <div className="mb-4">
+                        <img src={getSafePhotoUrl(editingHunt.photo)} alt="Current" className="w-full h-48 object-cover rounded-xl" />
+                        <p className="text-sm text-gray-600 mt-2">Current photo (will be kept if you don't upload a new one)</p>
+                      </div>
+                    )}
+                    <input type="file" accept="image/*" onChange={(e) => setNewHuntPhoto(e.target.files?.[0] || null)} className="w-full p-5 border-2 border-dashed border-amber-300 rounded-2xl bg-amber-50" />
+                  </div>
                 </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Business Name *</label>
-                  <input type="text" value={newHuntBusinessName} onChange={(e) => setNewHuntBusinessName(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. Brew Coffee House" />
+                <div className="flex gap-4 mt-10">
+                  <button
+                    onClick={() => {
+                      setShowEditModal(false);
+                      setEditingHunt(null);
+                      setNewHuntPhoto(null);
+                    }}
+                    className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 py-6 rounded-2xl font-black text-2xl transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={updateHunt}
+                    disabled={creatingHunt}
+                    className="flex-1 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white py-6 rounded-2xl font-black text-2xl transition"
+                  >
+                    {creatingHunt ? "Updating..." : "Update Hunt"}
+                  </button>
                 </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Riddle / Clue *</label>
-                  <textarea value={newHuntRiddle} onChange={(e) => setNewHuntRiddle(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl h-32" placeholder="Write an intriguing riddle..." />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Secret Code *</label>
-                  <input type="text" value={newHuntCode} onChange={(e) => setNewHuntCode(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. BREW2025" />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Discount / Reward</label>
-                  <input type="text" value={newHuntDiscount} onChange={(e) => setNewHuntDiscount(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. Free coffee" />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Latitude *</label>
-                  <input type="text" value={newHuntLat} onChange={(e) => setNewHuntLat(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. 51.5074" />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Longitude *</label>
-                  <input type="text" value={newHuntLon} onChange={(e) => setNewHuntLon(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. -0.1278" />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Radius (meters)</label>
-                  <input type="number" value={newHuntRadius} onChange={(e) => setNewHuntRadius(e.target.value)} className="w-full p-5 border-2 border-amber-200 rounded-2xl" placeholder="50" />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Hunt Photo (leave empty to keep current)</label>
-                  {editingHunt.photo && !newHuntPhoto && (
-                    <div className="mb-4">
-                      <img src={getSafePhotoUrl(editingHunt.photo)} alt="Current" className="w-full h-48 object-cover rounded-xl" />
-                      <p className="text-sm text-gray-600 mt-2">Current photo (will be kept if you don't upload a new one)</p>
-                    </div>
-                  )}
-                  <input type="file" accept="image/*" onChange={(e) => setNewHuntPhoto(e.target.files?.[0] || null)} className="w-full p-5 border-2 border-dashed border-amber-300 rounded-2xl bg-amber-50" />
-                </div>
-              </div>
-              <div className="flex gap-4 mt-10">
-                <button
-                  onClick={() => {
-                    setShowEditModal(false);
-                    setEditingHunt(null);
-                    setNewHuntPhoto(null);
-                  }}
-                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 py-6 rounded-2xl font-black text-2xl transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={updateHunt}
-                  disabled={creatingHunt}
-                  className="flex-1 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white py-6 rounded-2xl font-black text-2xl transition"
-                >
-                  {creatingHunt ? "Updating..." : "Update Hunt"}
-                </button>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     );
   }
@@ -1154,9 +1148,22 @@ export default function App() {
                   </span>
                   <p className="text-2xl font-bold mb-4 text-gray-800">{hunt.riddle}</p>
                   <p className="text-xl font-medium text-gray-700 mb-2">{hunt.business_name}</p>
-                  {hunt.discount && (
-                    <p className="text-lg text-green-600 font-semibold mb-8">Gift: {hunt.discount}</p>
-                  )}
+
+                  {/* Hide code and discount until completed */}
+                  {completed.includes(hunt.id) ? (
+                    <>
+                      {hunt.discount && (
+                        <p className="text-lg text-green-600 font-semibold mb-4">Gift: {hunt.discount}</p>
+                      )}
+                      <div className="bg-green-100 rounded-xl p-4 mb-8">
+                        <p className="text-sm text-green-800 font-semibold mb-1">Your secret code:</p>
+                        <p className="text-green-600 font-black text-2xl">{hunt.code}</p>
+                      </div>
+                    </>
+                  ) : hunt.discount ? (
+                    <p className="text-lg text-gray-500 mb-8">Complete the hunt to unlock gift & code!</p>
+                  ) : null}
+
                   <button
                     onClick={() => {
                       setCurrentHunt(hunt);
@@ -1319,4 +1326,4 @@ export default function App() {
       )}
     </div>
   );
-                                      }
+}
