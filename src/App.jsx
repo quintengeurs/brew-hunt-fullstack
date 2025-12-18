@@ -138,25 +138,11 @@ export default function App() {
         // Set aggressive timeout
         timeoutId = setTimeout(() => {
           if (mounted && !sessionResolved) {
-            console.warn("Auth timeout - checking localStorage directly");
-            // Try to get session from localStorage as fallback
-            try {
-              const keys = Object.keys(localStorage);
-              const authKey = keys.find(k => k.includes('supabase.auth.token'));
-              if (authKey) {
-                console.log("Found auth token in localStorage, will let auth listener handle it");
-              } else {
-                console.log("No auth token found, showing login");
-                setSession(null);
-                setInitializing(false);
-                sessionResolved = true;
-              }
-            } catch (e) {
-              console.error("localStorage check failed:", e);
-              setSession(null);
-              setInitializing(false);
-              sessionResolved = true;
-            }
+            console.warn("Auth timeout - checking if auth listener already handled it");
+            // Don't clear session if auth listener already set it
+            // Just mark initialization as complete
+            setInitializing(false);
+            sessionResolved = true;
           }
         }, 2000); // 2 second timeout
 
@@ -230,6 +216,10 @@ export default function App() {
         return;
       }
 
+      // Mark that we got a response from auth
+      sessionResolved = true;
+      clearTimeout(timeoutId);
+
       // Validate the session has required data
       const isValidSession = newSession && newSession.user && newSession.access_token;
       
@@ -237,6 +227,8 @@ export default function App() {
       
       if (isValidSession) {
         setSession(newSession);
+        setInitializing(false); // Mark initialization complete
+        
         if (newSession.user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
           setIsAdmin(true);
         } else {
@@ -262,6 +254,7 @@ export default function App() {
         // No valid session - clear everything
         console.log("No valid session, clearing state");
         setSession(null);
+        setInitializing(false); // Mark initialization complete
         setIsAdmin(false);
         setShowAdmin(false);
         setDataLoaded(false);
