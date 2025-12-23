@@ -70,9 +70,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
 
   const [hunts, setHunts] = useState([]);
-  const [filteredHunts, setFilteredHunts] = useState([]);
-  const [activeFilter, setActiveFilter] = useState("All");
   const [completed, setCompleted] = useState([]);
+  const [activeFilter, setActiveFilter] = useState("All");
   const [streak, setStreak] = useState(0);
   const [totalHunts, setTotalHunts] = useState(0);
   const [tier, setTier] = useState("Newbie");
@@ -89,17 +88,17 @@ export default function App() {
   const [leaderboardData, setLeaderboardData] = useState([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
 
-  // Admin
+  // Admin states
   const [isAdmin, setIsAdmin] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [adminTab, setAdminTab] = useState("hunts");
   const [adminHunts, setAdminHunts] = useState([]);
-  const [selfies, setSelfies] = useState([]);
+  const [userUploads, setUserUploads] = useState([]);
   const [processingSubmission, setProcessingSubmission] = useState(null);
   const [editingHunt, setEditingHunt] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
 
-  // Create Hunt Form
+  // Create/Edit Hunt Form
   const [newHuntDate, setNewHuntDate] = useState("");
   const [newHuntCategory, setNewHuntCategory] = useState("");
   const [newHuntRiddle, setNewHuntRiddle] = useState("");
@@ -114,9 +113,7 @@ export default function App() {
 
   // ─── AUTH & PROFILE AUTO-CREATE ─────────────────────
   useEffect(() => {
-    console.log("Checking initial session...");
     supabase.auth.getSession().then(({ data }) => {
-      console.log("Initial session:", data.session ? "exists" : "null");
       setSession(data.session);
       setSessionLoading(false);
       if (data.session?.user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
@@ -125,10 +122,9 @@ export default function App() {
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      console.log("Auth state changed:", _event, session ? "session exists" : "no session");
       setSession(session);
       setSessionLoading(false);
-      
+
       if (session?.user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
         setIsAdmin(true);
       } else {
@@ -156,18 +152,17 @@ export default function App() {
     return () => listener?.subscription.unsubscribe();
   }, []);
 
-  // ─── LOAD DATA ─────────────────────
+  // ─── LOAD USER DATA ─────────────────────
   const loadProgressAndHunts = useCallback(async () => {
-    if (!session?.user?.id) {
-      console.log("No session, skipping load");
-      return;
-    }
+    if (!session?.user?.id || showAdmin) return;
 
-    console.log("Loading progress and hunts for user:", session.user.id);
-    
+    console.log("Loading progress and hunts...");
+
     try {
       setError("");
+      setDataLoaded(false);
 
+      // User progress
       const { data: progressRows, error: progressError } = await supabase
         .from("user_progress")
         .select("*")
@@ -193,6 +188,8 @@ export default function App() {
           completedIds = Array.from(all);
           setTotalHunts(completedIds.length);
           setStreak(maxStreak);
+
+          // Clean up duplicate rows
           for (let i = 1; i < progressRows.length; i++) {
             await supabase.from("user_progress").delete().eq("id", progressRows[i].id);
           }
@@ -200,9 +197,12 @@ export default function App() {
           setTotalHunts(progress.total_hunts || 0);
           setStreak(progress.streak || 0);
         }
+
         setCompleted(completedIds);
         setTier(
-          completedIds.length >= 20 ? "Legend" : completedIds.length >= 10 ? "Pro" : completedIds.length >= 5 ? "Hunter" : "Newbie"
+          completedIds.length >= 20 ? "Legend" :
+          completedIds.length >= 10 ? "Pro" :
+          completedIds.length >= 5 ? "Hunter" : "Newbie"
         );
         setLastActive(progress.last_active || null);
       } else {
@@ -213,6 +213,7 @@ export default function App() {
         setLastActive(null);
       }
 
+      // Load active hunts
       const todayISO = new Date().toISOString().split("T")[0];
       const { data: huntsData, error: huntsError } = await supabase
         .from("hunts")
@@ -223,84 +224,47 @@ export default function App() {
       if (huntsError) throw huntsError;
 
       setHunts(huntsData || []);
-      
-      // Apply filter directly here
-      let filtered = huntsData || [];
-      filtered = filtered.filter((h) => !completedIds.includes(h.id));
-      if (activeFilter !== "All") {
-        filtered = filtered.filter((h) => h.category === activeFilter);
-      }
-      setFilteredHunts(filtered);
-      
-      setDataLoaded(true);
-      console.log("Data loaded successfully - hunts:", huntsData?.length, "completed:", completedIds.length);
+      console.log("Data loaded successfully");
     } catch (e) {
       console.error("Load error:", e);
       setError("Failed to load hunts. Please refresh.");
+    } finally {
       setDataLoaded(true);
     }
-  }, [session?.user?.id, activeFilter]);
+  }, [session?.user?.id, showAdmin]);
 
-  // Initial load - ONLY when session is confirmed to exist
+  // Initial load when session is ready
   useEffect(() => {
-    if (sessionLoading) {
-      console.log("Still loading session, waiting...");
-      return;
-    }
-    
+    if (sessionLoading) return;
     if (!session) {
-      console.log("No session found, showing login");
       setDataLoaded(false);
       return;
     }
-    
-    if (showAdmin) {
-      console.log("Admin mode, skipping user data load");
-      return;
-    }
+    if (showAdmin) return;
 
-    console.log("Session confirmed, loading data...");
-    setDataLoaded(false);
     loadProgressAndHunts();
-  }, [session, showAdmin, sessionLoading]);
+  }, [session, sessionLoading, showAdmin, loadProgressAndHunts]);
 
-  // Separate effect for filter changes
-  useEffect(() => {
-    if (!dataLoaded || hunts.length === 0) return;
-    
-    let filtered = hunts.filter((h) => !completed.includes(h.id));
-    if (activeFilter !== "All") {
-      filtered = filtered.filter((h) => h.category === activeFilter);
-    }
-    setFilteredHunts(filtered);
-  }, [activeFilter, hunts, completed, dataLoaded]);
+  // Filtered hunts (centralised – no duplicate logic)
+  const filteredHunts = hunts
+    .filter((h) => !completed.includes(h.id))
+    .filter((h) => activeFilter === "All" || h.category === activeFilter);
 
-  // ─── REALTIME SUBSCRIPTIONS ─────────────────────
+  // Realtime updates
   useEffect(() => {
     if (!session || showAdmin) return;
 
     const huntsChannel = supabase
       .channel("hunts-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "hunts" }, () => {
-        console.log("Hunts changed, reloading...");
-        loadProgressAndHunts();
-      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "hunts" }, loadProgressAndHunts)
       .subscribe();
 
     const progressChannel = supabase
       .channel("progress-changes")
       .on(
         "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "user_progress",
-          filter: `user_id=eq.${session.user.id}`,
-        },
-        () => {
-          console.log("Progress changed, reloading...");
-          loadProgressAndHunts();
-        }
+        { event: "*", schema: "public", table: "user_progress", filter: `user_id=eq.${session.user.id}` },
+        loadProgressAndHunts
       )
       .subscribe();
 
@@ -362,28 +326,21 @@ export default function App() {
 
       const { error: uploadError } = await supabase.storage
         .from("selfies")
-        .upload(filePath, selfieFile, {
-          cacheControl: '3600',
-          upsert: false
-        });
+        .upload(filePath, selfieFile, { cacheControl: '3600', upsert: false });
 
-      if (uploadError) {
-        console.error("Upload error:", uploadError);
-        throw new Error(`Upload failed: ${uploadError.message}`);
-      }
+      if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
 
       const { data: { publicUrl } } = supabase.storage
         .from("selfies")
         .getPublicUrl(filePath);
 
-      const { error: insertError } = await supabase.from("selfies").insert({
+      const { error: insertError } = await supabase.from("user-uploads").insert({
         user_id: session.user.id,
         hunt_id: currentHunt.id,
         image_url: publicUrl,
       });
 
       if (insertError) {
-        console.error("Insert error:", insertError);
         await supabase.storage.from("selfies").remove([filePath]);
         throw new Error(`Database insert failed: ${insertError.message}`);
       }
@@ -396,17 +353,14 @@ export default function App() {
 
       const newTier = newCompleted.length >= 20 ? "Legend" : newCompleted.length >= 10 ? "Pro" : newCompleted.length >= 5 ? "Hunter" : "Newbie";
 
-      await supabase.from("user_progress").upsert(
-        {
-          user_id: session.user.id,
-          completed_hunt_ids: newCompleted,
-          total_hunts: newCompleted.length,
-          streak: newStreak,
-          tier: newTier,
-          last_active: today,
-        },
-        { onConflict: "user_id" }
-      );
+      await supabase.from("user_progress").upsert({
+        user_id: session.user.id,
+        completed_hunt_ids: newCompleted,
+        total_hunts: newCompleted.length,
+        streak: newStreak,
+        tier: newTier,
+        last_active: today,
+      }, { onConflict: "user_id" });
 
       setCompleted(newCompleted);
       setTotalHunts(newCompleted.length);
@@ -419,7 +373,6 @@ export default function App() {
       setCurrentHunt(null);
       alert(`Success! Your code is: ${currentHunt.code}`);
     } catch (err) {
-      console.error("Selfie upload error:", err);
       alert(err.message || "Upload failed – check console for details");
     } finally {
       setUploading(false);
@@ -454,7 +407,6 @@ export default function App() {
 
       setLeaderboardData(enriched);
     } catch (err) {
-      console.error("Leaderboard error:", err);
       setLeaderboardData([]);
     } finally {
       setLoadingLeaderboard(false);
@@ -474,7 +426,10 @@ export default function App() {
         .order("date", { ascending: false });
       setAdminHunts(allHunts || []);
 
-      const { data: subs } = await supabase.from("selfies").select("*").order("created_at", { ascending: false });
+      const { data: subs } = await supabase
+        .from("user-uploads")
+        .select("*")
+        .order("created_at", { ascending: false });
 
       const enriched = await Promise.all(
         (subs || []).map(async (sub) => {
@@ -483,20 +438,17 @@ export default function App() {
             .select("business_name")
             .eq("id", sub.hunt_id)
             .single();
-          return { ...sub, hunt_name: hunt?.business_name || "Unknown", user_email: sub.user_id };
+          return { ...sub, hunt_name: hunt?.business_name || "Unknown" };
         })
       );
-      setSelfies(enriched);
+      setUserUploads(enriched);
     } catch (e) {
       setError("Failed to load admin data");
     }
   }, []);
 
-  // Load admin data when entering admin mode
   useEffect(() => {
-    if (showAdmin && isAdmin) {
-      loadAdminData();
-    }
+    if (showAdmin && isAdmin) loadAdminData();
   }, [showAdmin, isAdmin, loadAdminData]);
 
   // ─── CREATE HUNT ─────────────────────
@@ -574,7 +526,7 @@ export default function App() {
   const approveSelfie = useCallback(async (id) => {
     setProcessingSubmission(id);
     try {
-      const { error } = await supabase.from("selfies").update({ approved: true }).eq("id", id);
+      const { error } = await supabase.from("user-uploads").update({ approved: true }).eq("id", id);
       if (error) throw error;
       await loadAdminData();
     } catch {
@@ -588,7 +540,7 @@ export default function App() {
     if (!window.confirm("Reject this submission?")) return;
     setProcessingSubmission(id);
     try {
-      const { error } = await supabase.from("selfies").delete().eq("id", id);
+      const { error } = await supabase.from("user-uploads").delete().eq("id", id);
       if (error) throw error;
       await loadAdminData();
     } catch {
@@ -748,8 +700,12 @@ export default function App() {
     setSession(null);
   };
 
-  // ─── ADMIN PANEL ─────────────────────
-  if (showAdmin) {
+  // ─── CALCULATED VALUES FOR RENDER ─────────────────────
+  const activeHuntsCount = hunts.filter((h) => !completed.includes(h.id)).length;
+  const completedHunts = hunts.filter((h) => completed.includes(h.id));
+
+  // ─── RENDER ADMIN PANEL ─────────────────────
+  if (showAdmin && isAdmin) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50">
         <div className="bg-white shadow-xl p-4 md:p-6 sticky top-0 z-50 flex justify-between items-center">
@@ -779,7 +735,7 @@ export default function App() {
               onClick={() => setAdminTab("selfies")}
               className={`pb-4 px-4 md:px-6 text-lg md:text-2xl font-bold whitespace-nowrap ${adminTab === "selfies" ? "text-amber-600 border-b-4 border-amber-600" : "text-gray-600"}`}
             >
-              Pending ({selfies.filter((s) => !s.approved).length})
+              Pending ({userUploads.filter((s) => !s.approved).length})
             </button>
             <button
               onClick={() => setAdminTab("create")}
@@ -824,13 +780,13 @@ export default function App() {
             </div>
           )}
 
-          {/* SELFIES */}
+          {/* PENDING SUBMISSIONS */}
           {adminTab === "selfies" && (
             <>
-              {selfies.filter((s) => !s.approved).length === 0 ? (
+              {userUploads.filter((s) => !s.approved).length === 0 ? (
                 <p className="text-center text-gray-600 text-lg md:text-xl py-12">No pending selfies</p>
               ) : (
-                selfies
+                userUploads
                   .filter((s) => !s.approved)
                   .map((sub) => (
                     <div key={sub.id} className="bg-white rounded-3xl shadow-2xl flex flex-col lg:flex-row mb-6 md:mb-8">
@@ -872,7 +828,7 @@ export default function App() {
             </>
           )}
 
-          {/* CREATE HUNT - keeping original size as it's admin only */}
+          {/* CREATE HUNT FORM */}
           {adminTab === "create" && (
             <div className="bg-white rounded-3xl shadow-2xl p-6 md:p-10 max-w-4xl mx-auto">
               <h2 className="text-3xl md:text-4xl font-black text-amber-900 mb-8 md:mb-10 text-center">Create New Hunt</h2>
@@ -936,7 +892,7 @@ export default function App() {
             </div>
           )}
 
-          {/* EDIT HUNT MODAL - keeping full size modals */}
+          {/* EDIT HUNT MODAL */}
           {showEditModal && editingHunt && (
             <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4 md:p-6 overflow-y-auto">
               <div className="bg-white rounded-3xl shadow-2xl p-6 md:p-10 max-w-4xl w-full my-8">
@@ -972,31 +928,31 @@ export default function App() {
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-sm font-bold text-gray-700 mb-2">Business Name *</label>
-                    <input type="text" value={newHuntBusinessName} onChange={(e) => setNewHuntBusinessName(e.target.value)} className="w-full p-4 md:p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. Brew Coffee House" />
+                    <input type="text" value={newHuntBusinessName} onChange={(e) => setNewHuntBusinessName(e.target.value)} className="w-full p-4 md:p-5 border-2 border-amber-200 rounded-2xl" />
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-sm font-bold text-gray-700 mb-2">Riddle / Clue *</label>
-                    <textarea value={newHuntRiddle} onChange={(e) => setNewHuntRiddle(e.target.value)} className="w-full p-4 md:p-5 border-2 border-amber-200 rounded-2xl h-24 md:h-32" placeholder="Write an intriguing riddle..." />
+                    <textarea value={newHuntRiddle} onChange={(e) => setNewHuntRiddle(e.target.value)} className="w-full p-4 md:p-5 border-2 border-amber-200 rounded-2xl h-24 md:h-32" />
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">Secret Code *</label>
-                    <input type="text" value={newHuntCode} onChange={(e) => setNewHuntCode(e.target.value)} className="w-full p-4 md:p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. BREW2025" />
+                    <input type="text" value={newHuntCode} onChange={(e) => setNewHuntCode(e.target.value)} className="w-full p-4 md:p-5 border-2 border-amber-200 rounded-2xl" />
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">Discount / Reward</label>
-                    <input type="text" value={newHuntDiscount} onChange={(e) => setNewHuntDiscount(e.target.value)} className="w-full p-4 md:p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. Free coffee" />
+                    <input type="text" value={newHuntDiscount} onChange={(e) => setNewHuntDiscount(e.target.value)} className="w-full p-4 md:p-5 border-2 border-amber-200 rounded-2xl" />
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">Latitude *</label>
-                    <input type="text" value={newHuntLat} onChange={(e) => setNewHuntLat(e.target.value)} className="w-full p-4 md:p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. 51.5074" />
+                    <input type="text" value={newHuntLat} onChange={(e) => setNewHuntLat(e.target.value)} className="w-full p-4 md:p-5 border-2 border-amber-200 rounded-2xl" />
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">Longitude *</label>
-                    <input type="text" value={newHuntLon} onChange={(e) => setNewHuntLon(e.target.value)} className="w-full p-4 md:p-5 border-2 border-amber-200 rounded-2xl" placeholder="e.g. -0.1278" />
+                    <input type="text" value={newHuntLon} onChange={(e) => setNewHuntLon(e.target.value)} className="w-full p-4 md:p-5 border-2 border-amber-200 rounded-2xl" />
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">Radius (meters)</label>
-                    <input type="number" value={newHuntRadius} onChange={(e) => setNewHuntRadius(e.target.value)} className="w-full p-4 md:p-5 border-2 border-amber-200 rounded-2xl" placeholder="50" />
+                    <input type="number" value={newHuntRadius} onChange={(e) => setNewHuntRadius(e.target.value)} className="w-full p-4 md:p-5 border-2 border-amber-200 rounded-2xl" />
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-sm font-bold text-gray-700 mb-2">Hunt Photo (leave empty to keep current)</label>
@@ -1064,6 +1020,7 @@ export default function App() {
     );
   }
 
+  // ─── LOADING SCREEN ─────────────────────
   if (!dataLoaded) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50 flex items-center justify-center px-4">
@@ -1075,9 +1032,7 @@ export default function App() {
     );
   }
 
-  const activeHuntsCount = hunts.filter((h) => !completed.includes(h.id)).length;
-  const completedHunts = hunts.filter((h) => completed.includes(h.id));
-
+  // ─── MAIN DASHBOARD ─────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50">
       {/* HEADER */}
@@ -1137,7 +1092,7 @@ export default function App() {
           ))}
         </div>
 
-        {/* HUNTS GRID - 2 columns mobile, 4 columns desktop */}
+        {/* HUNTS GRID */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 pb-16 md:pb-24">
           {filteredHunts.length === 0 ? (
             <div className="col-span-2 lg:col-span-4 text-center py-8 md:py-12 bg-white rounded-3xl shadow-xl p-6 md:p-8">
@@ -1206,7 +1161,6 @@ export default function App() {
             <User className="w-12 h-12 md:w-16 md:h-16 text-purple-600 mx-auto mb-4 md:mb-6" />
             <h2 className="text-3xl md:text-4xl font-black text-amber-900 mb-8 md:mb-10">Your Profile</h2>
             
-            {/* STATS */}
             <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-3xl p-6 md:p-8 mb-6 md:mb-8">
               <div className="flex justify-between items-center mb-4 md:mb-6">
                 <div>
@@ -1228,7 +1182,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* LEADERBOARD BUTTON */}
             <button
               onClick={() => {
                 setShowProfileModal(false);
@@ -1312,10 +1265,7 @@ export default function App() {
               capture="environment"
               onChange={(e) => {
                 const file = e.target.files?.[0];
-                if (file) {
-                  console.log("File selected:", file.name, file.type, file.size);
-                  setSelfieFile(file);
-                }
+                if (file) setSelfieFile(file);
               }}
               className="hidden"
               id="camera"
@@ -1364,13 +1314,9 @@ export default function App() {
                   <div
                     key={idx}
                     className={`p-4 md:p-6 rounded-2xl ${
-                      idx === 0
-                        ? "bg-amber-100"
-                        : idx === 1
-                        ? "bg-gray-100"
-                        : idx === 2
-                        ? "bg-orange-50"
-                        : "bg-gray-50"
+                      idx === 0 ? "bg-amber-100" :
+                      idx === 1 ? "bg-gray-100" :
+                      idx === 2 ? "bg-orange-50" : "bg-gray-50"
                     }`}
                   >
                     <div className="flex items-center justify-between">
