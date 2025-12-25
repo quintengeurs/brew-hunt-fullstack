@@ -199,18 +199,16 @@ export default function App() {
 
   // ─── LOAD USER DATA ─────────────────────
   const loadProgressAndHunts = useCallback(async () => {
-    // Don't run if no session or in admin mode
+    // Absolute guard - never run without session
     if (!session?.user?.id) {
-      console.log("Skipping load - no session");
       return;
     }
     
     if (showAdmin) {
-      console.log("Skipping load - admin mode");
       return;
     }
 
-    console.log("Loading progress and hunts...");
+    console.log("Loading progress and hunts for user:", session.user.id);
 
     try {
       setError("");
@@ -291,22 +289,26 @@ export default function App() {
   useEffect(() => {
     // Wait for session to be checked
     if (sessionLoading) {
+      console.log("Still loading session...");
       return;
     }
     
     // No session = show login (mark as loaded so we don't show loading spinner)
     if (!session) {
+      console.log("No session - showing login screen");
       setDataLoaded(true);
       return;
     }
     
     // Don't load data in admin view
     if (showAdmin) {
+      console.log("Admin mode - skipping data load");
       setDataLoaded(true);
       return;
     }
 
     // We have a session and we're not in admin - load the data
+    console.log("Valid session found, loading data...");
     loadProgressAndHunts();
   }, [session, sessionLoading, showAdmin, loadProgressAndHunts]);
 
@@ -927,7 +929,7 @@ export default function App() {
                     <option value="1week">1 week</option>
                   </select>
                 </div>
-                <div>
+                <div className="md:col-span-2">
                   <label className="block text-sm font-bold text-gray-700 mb-2">Category</label>
                   <select value={newHuntCategory} onChange={(e) => setNewHuntCategory(e.target.value)} className="w-full p-4 md:p-5 border-2 border-amber-200 rounded-2xl">
                     <option value="">Select category</option>
@@ -1015,7 +1017,7 @@ export default function App() {
                       <option value="1week">1 week</option>
                     </select>
                   </div>
-                  <div>
+                  <div className="md:col-span-2">
                     <label className="block text-sm font-bold text-gray-700 mb-2">Category</label>
                     <select value={newHuntCategory} onChange={(e) => setNewHuntCategory(e.target.value)} className="w-full p-4 md:p-5 border-2 border-amber-200 rounded-2xl">
                       <option value="">Select category</option>
