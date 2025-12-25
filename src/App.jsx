@@ -283,7 +283,7 @@ export default function App() {
     } finally {
       setDataLoaded(true);
     }
-  }, [session?.user?.id, showAdmin]);
+  }, [session, showAdmin]);
 
   // Initial load when session is ready
   useEffect(() => {
@@ -310,7 +310,8 @@ export default function App() {
     // We have a session and we're not in admin - load the data
     console.log("Valid session found, loading data...");
     loadProgressAndHunts();
-  }, [session, sessionLoading, showAdmin, loadProgressAndHunts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, sessionLoading, showAdmin]);
 
   // Filtered hunts (centralised – no duplicate logic)
   const filteredHunts = hunts
