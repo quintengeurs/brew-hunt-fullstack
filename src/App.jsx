@@ -199,7 +199,16 @@ export default function App() {
 
   // ─── LOAD USER DATA ─────────────────────
   const loadProgressAndHunts = useCallback(async () => {
-    if (!session?.user?.id || showAdmin) return;
+    // Don't run if no session or in admin mode
+    if (!session?.user?.id) {
+      console.log("Skipping load - no session");
+      return;
+    }
+    
+    if (showAdmin) {
+      console.log("Skipping load - admin mode");
+      return;
+    }
 
     console.log("Loading progress and hunts...");
 
@@ -278,18 +287,26 @@ export default function App() {
     }
   }, [session?.user?.id, showAdmin]);
 
-  // Initial load when session is ready - FIXED: Only load when we have a confirmed session
+  // Initial load when session is ready
   useEffect(() => {
-    if (sessionLoading) return;
-    
-    if (!session) {
-      // User is not logged in, show login screen
-      setDataLoaded(true); // Set to true so we don't show loading screen
+    // Wait for session to be checked
+    if (sessionLoading) {
       return;
     }
     
-    if (showAdmin) return;
+    // No session = show login (mark as loaded so we don't show loading spinner)
+    if (!session) {
+      setDataLoaded(true);
+      return;
+    }
+    
+    // Don't load data in admin view
+    if (showAdmin) {
+      setDataLoaded(true);
+      return;
+    }
 
+    // We have a session and we're not in admin - load the data
     loadProgressAndHunts();
   }, [session, sessionLoading, showAdmin, loadProgressAndHunts]);
 
@@ -1077,7 +1094,21 @@ export default function App() {
   }
 
   // ─── LOGIN SCREEN ─────────────────────
-  if (!session) {
+  // Show login if: still checking session OR no session exists
+  if (sessionLoading || !session) {
+    // If still checking session, show a minimal loading state
+    if (sessionLoading) {
+      return (
+        <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50 flex items-center justify-center px-4">
+          <div className="text-center">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 md:h-16 md:w-16 border-b-4 border-amber-600 mb-4 md:mb-6"></div>
+            <p className="text-xl md:text-2xl text-amber-900 font-bold">Loading...</p>
+          </div>
+        </div>
+      );
+    }
+    
+    // No session = show login form
     return (
       <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-50 flex items-center justify-center px-4 md:px-6">
         <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12 max-w-md w-full text-center">
@@ -1102,6 +1133,7 @@ export default function App() {
         </div>
       </div>
     );
+  }
   }
 
   // ─── LOADING SCREEN ─────────────────────
