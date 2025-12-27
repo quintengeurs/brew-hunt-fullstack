@@ -416,13 +416,13 @@ export default function App() {
       const filePath = `${session.user.id}/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
-        .from("selfies")
+        .from("user-uploads")
         .upload(filePath, selfieFile, { cacheControl: '3600', upsert: false });
 
       if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
 
       const { data: { publicUrl } } = supabase.storage
-        .from("selfies")
+        .from("user-uploads")
         .getPublicUrl(filePath);
 
       const { error: insertError } = await supabase.from("user-uploads").insert({
@@ -432,7 +432,7 @@ export default function App() {
       });
 
       if (insertError) {
-        await supabase.storage.from("selfies").remove([filePath]);
+        await supabase.storage.from("user-uploads").remove([filePath]);
         throw new Error(`Database insert failed: ${insertError.message}`);
       }
 
