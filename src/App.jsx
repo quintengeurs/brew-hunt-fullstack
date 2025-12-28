@@ -389,7 +389,7 @@ export default function App() {
       setSelfieFile(null);
       return;
     }
-
+ 
     setUploading(true);
     setError("");
 
