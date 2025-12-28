@@ -1175,7 +1175,7 @@ export default function App() {
       </div>
     );
   }
-  }
+  
 
   // ─── LOADING SCREEN ─────────────────────
   if (!dataLoaded) {
@@ -1498,4 +1498,8 @@ export default function App() {
       )}
     </div>
   );
+}
+
+export default App;
+
 
