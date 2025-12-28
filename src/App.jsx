@@ -205,7 +205,7 @@ export default function App() {
             setSessionLoading(false);
             setDataLoaded(true);
           }
-        }, 8000);
+        }, 15000);
       }
     };
 
