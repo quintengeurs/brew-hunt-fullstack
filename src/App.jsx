@@ -151,92 +151,10 @@ export default function App() {
   const [newHuntPhoto, setNewHuntPhoto] = useState(null);
   const [creatingHunt, setCreatingHunt] = useState(false);
 
-  // ─── AUTH & DATA LOADING ─────────────────────
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        const { data: { session: currentSession }, error } = await supabase.auth.getSession();
-        
-        if (error) {
-          console.error("Session error:", error);
-          setSessionLoading(false);
-          setDataLoaded(true);
-          return;
-        }
-
-        console.log("Session check complete:", currentSession ? "Has session" : "No session");
-        
-        setSession(currentSession);
-        
-        if (currentSession?.user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-          setIsAdmin(true);
-        }
-        
-        if (!currentSession) {
-          setDataLoaded(true);
-        }
-      } catch (err) {
-        console.error("Auth initialization error:", err);
-        setSession(null);
-        setDataLoaded(true);
-      } finally {
-        setSessionLoading(false);
-      }
-    };
-
-    initAuth();
-
-    const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("Auth state changed:", event, session ? "Has session" : "No session");
-      
-      setSession(session);
-      setSessionLoading(false);
-
-      if (session?.user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-        setIsAdmin(true);
-      } else {
-        setIsAdmin(false);
-        setShowAdmin(false);
-      }
-
-      // Load data ONLY when token is fresh/confirmed
-      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session && !showAdmin) {
-        console.log("✅ Auth confirmed via", event, "- loading user data...");
-        loadProgressAndHunts();
-      }
-
-      // On sign out or no session
-      if (event === 'SIGNED_OUT' || !session) {
-        setDataLoaded(true);
-      }
-
-      // Auto-create profile on sign-in events
-      if (session && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("id")
-          .eq("id", session.user.id)
-          .single();
-
-        if (!profile) {
-          await supabase.from("profiles").insert({
-            id: session.user.id,
-            username: session.user.email?.split("@")[0] || `hunter_${Date.now().toString(36)}`,
-            full_name: session.user.user_metadata.full_name || null,
-          });
-        }
-      }
-    });
-
-    return () => listener?.subscription.unsubscribe();
-  }, [showAdmin]);
-
   // ─── LOAD USER DATA ─────────────────────
-  const loadProgressAndHunts = useCallback(async () => {
-    if (!session?.user?.id) {
-      console.log("❌ Load aborted - no valid session");
+  const loadProgressAndHunts = useCallback(async (currentSession) => {
+    if (!currentSession?.user?.id) {
+      console.log("❌ Load aborted - no valid session in callback");
       return;
     }
     
@@ -245,16 +163,16 @@ export default function App() {
       return;
     }
 
-    console.log("📊 Loading progress and hunts for user:", session.user.id);
+    console.log("📊 Loading progress and hunts for user:", currentSession.user.id);
 
     try {
       setError("");
 
-      console.log("🔍 DEBUG: Fetching user_progress for user:", session.user.id);
+      console.log("🔍 DEBUG: Fetching user_progress for user:", currentSession.user.id);
       const { data: progressRows, error: progressError } = await supabase
         .from("user_progress")
         .select("*")
-        .eq("user_id", session.user.id)
+        .eq("user_id", currentSession.user.id)
         .order("last_active", { ascending: false });
 
       console.log("🔍 DEBUG: user_progress result → data:", progressRows, "error:", progressError);
@@ -319,7 +237,89 @@ export default function App() {
     } finally {
       setDataLoaded(true);
     }
-  }, [session, showAdmin]);
+  }, [showAdmin]);
+
+  // ─── AUTH & DATA LOADING ─────────────────────
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        const { data: { session: currentSession }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error("Session error:", error);
+          setSessionLoading(false);
+          setDataLoaded(true);
+          return;
+        }
+
+        console.log("Session check complete:", currentSession ? "Has session" : "No session");
+        
+        setSession(currentSession);
+        
+        if (currentSession?.user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+          setIsAdmin(true);
+        }
+        
+        if (!currentSession) {
+          setDataLoaded(true);
+        }
+      } catch (err) {
+        console.error("Auth initialization error:", err);
+        setSession(null);
+        setDataLoaded(true);
+      } finally {
+        setSessionLoading(false);
+      }
+    };
+
+    initAuth();
+
+    const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("Auth state changed:", event, session ? "Has session" : "No session");
+      
+      setSession(session);
+      setSessionLoading(false);
+
+      if (session?.user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+        setIsAdmin(true);
+      } else {
+        setIsAdmin(false);
+        setShowAdmin(false);
+      }
+
+      // Load data ONLY when token is fresh/confirmed, using the session from callback
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && session && !showAdmin) {
+        console.log("✅ Auth confirmed via", event, "- loading user data...");
+        loadProgressAndHunts(session);
+      }
+
+      // On sign out
+      if (event === 'SIGNED_OUT' || !session) {
+        setDataLoaded(true);
+      }
+
+      // Auto-create profile
+      if (session && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION')) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("id", session.user.id)
+          .single();
+
+        if (!profile) {
+          await supabase.from("profiles").insert({
+            id: session.user.id,
+            username: session.user.email?.split("@")[0] || `hunter_${Date.now().toString(36)}`,
+            full_name: session.user.user_metadata.full_name || null,
+          });
+        }
+      }
+    });
+
+    return () => listener?.subscription.unsubscribe();
+  }, [showAdmin, loadProgressAndHunts]);
 
   // Filtered hunts
   const filteredHunts = hunts
@@ -337,7 +337,7 @@ export default function App() {
         .channel("hunts-changes")
         .on("postgres_changes", { event: "*", schema: "public", table: "hunts" }, () => {
           console.log("Realtime hunt change detected");
-          loadProgressAndHunts();
+          loadProgressAndHunts(session);
         })
         .subscribe((status) => {
           if (status === "SUBSCRIBED") console.log("Realtime hunts connected");
@@ -350,7 +350,7 @@ export default function App() {
           { event: "*", schema: "public", table: "user_progress", filter: `user_id=eq.${session.user.id}` },
           () => {
             console.log("Realtime progress change detected");
-            loadProgressAndHunts();
+            loadProgressAndHunts(session);
           }
         )
         .subscribe((status) => {
@@ -850,7 +850,6 @@ export default function App() {
             </button>
           </div>
 
-          {/* ALL HUNTS */}
           {adminTab === "hunts" && (
             <div className="grid gap-4 md:gap-8 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
               {adminHunts.map((hunt) => (
@@ -886,7 +885,6 @@ export default function App() {
             </div>
           )}
 
-          {/* PENDING SUBMISSIONS */}
           {adminTab === "selfies" && (
             <>
               {userUploads.filter((s) => !s.approved).length === 0 ? (
@@ -934,7 +932,6 @@ export default function App() {
             </>
           )}
 
-          {/* CREATE HUNT FORM */}
           {adminTab === "create" && (
             <div className="bg-white rounded-3xl shadow-2xl p-6 md:p-10 max-w-4xl mx-auto">
               <h2 className="text-3xl md:text-4xl font-black text-amber-900 mb-8 md:mb-10 text-center">Create New Hunt</h2>
@@ -1009,7 +1006,6 @@ export default function App() {
             </div>
           )}
 
-          {/* EDIT HUNT MODAL */}
           {showEditModal && editingHunt && (
             <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4 md:p-6 overflow-y-auto">
               <div className="bg-white rounded-3xl shadow-2xl p-6 md:p-10 max-w-4xl w-full my-8">
