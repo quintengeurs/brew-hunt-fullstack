@@ -325,27 +325,38 @@ export default function App() {
     }
   }, [session, showAdmin]);
 
-  // Initial load when session is ready
+  // Initial load when session is CONFIRMED ready
   useEffect(() => {
     if (sessionLoading) {
       console.log("⏳ Still loading session...");
       return;
     }
-    
+
     if (!session) {
       console.log("🔓 No session - showing login screen");
       setDataLoaded(true);
       return;
     }
-    
+
     if (showAdmin) {
       console.log("🔧 Admin mode - skipping data load");
       setDataLoaded(true);
       return;
     }
 
-    console.log("✅ Valid session found - loading user data...");
-    loadProgressAndHunts();
+    // Extra safety: confirm user is fully loaded (handles token refresh on page load)
+    const confirmUser = async () => {
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error || !user) {
+        console.error("User confirmation failed:", error);
+        setDataLoaded(true); // fallback to login
+        return;
+      }
+      console.log("✅ User fully confirmed - loading data...");
+      loadProgressAndHunts();
+    };
+
+    confirmUser();
   }, [session, sessionLoading, showAdmin, loadProgressAndHunts]);
 
   // Filtered hunts
